@@ -1,0 +1,214 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+
+const eventTypeSrc = `export const EVENT_TYPE = {
+  pageView: 1,
+  customEvent: 2,
+  linkEvent: 3,
+  pixelEvent: 4,
+  performance: 5,
+} as const;`;
+
+const relationSrc = `datasource db {
+  provider     = "postgresql"
+  relationMode = "prisma"
+}
+
+model WebsiteEvent {
+  id        String @id() @map("event_id") @db.Uuid
+  websiteId String @map("website_id") @db.Uuid   // no relation field → no join via Prisma
+  sessionId String @map("session_id") @db.Uuid
+  visitId   String @map("visit_id") @db.Uuid    // not a table — just a derived id
+  ...
+  session   Session @relation(fields: [sessionId], references: [id])
+}`;
+
+// ERD geometry (fixed light-world colours; the diagram card stays light in both themes)
+type Box = { name: string; x: number; y: number; fields: string[]; tone: string };
+const boxes: Box[] = [
+  { name: 'user', x: 20, y: 20, fields: ['user_id PK', 'username', 'role'], tone: '#7c4dda' },
+  { name: 'team_user', x: 20, y: 150, fields: ['team_id', 'user_id', 'role'], tone: '#7c4dda' },
+  { name: 'team', x: 20, y: 280, fields: ['team_id PK', 'access_code'], tone: '#7c4dda' },
+  { name: 'website', x: 270, y: 110, fields: ['website_id PK', 'user_id | team_id', 'reset_at'], tone: '#0e7f9e' },
+  { name: 'link · pixel', x: 270, y: 280, fields: ['link_id / pixel_id', 'slug (unique)'], tone: '#c2407e' },
+  { name: 'session', x: 530, y: 20, fields: ['session_id PK', 'website_id', 'browser, os, device…', 'distinct_id'], tone: '#2f6fd6' },
+  { name: 'website_event', x: 530, y: 190, fields: ['event_id PK', 'website_id', 'session_id', 'visit_id', 'event_type 1–5'], tone: '#0f8a7e' },
+  { name: 'session_data', x: 790, y: 10, fields: ['session_id', 'data_key (unique/session)'], tone: '#2f6fd6' },
+  { name: 'session_link', x: 790, y: 105, fields: ['website_id, distinct_id,', 'session_id (composite PK)'], tone: '#2f6fd6' },
+  { name: 'event_data', x: 790, y: 200, fields: ['website_event_id', 'data_key, *_value'], tone: '#0f8a7e' },
+  { name: 'revenue', x: 790, y: 295, fields: ['event_id', 'session_id', 'currency, revenue'], tone: '#a8690f' },
+];
+const W = 200;
+const H = (b: Box) => 26 + b.fields.length * 18 + 6;
+const byName = Object.fromEntries(boxes.map((b) => [b.name, b]));
+const mid = (b: Box, side: 'l' | 'r' | 't' | 'b') =>
+  side === 'l' ? [b.x, b.y + H(b) / 2] : side === 'r' ? [b.x + W, b.y + H(b) / 2] : side === 't' ? [b.x + W / 2, b.y] : [b.x + W / 2, b.y + H(b)];
+type Edge = { a: string; as: 'l' | 'r' | 't' | 'b'; b: string; bs: 'l' | 'r' | 't' | 'b'; dashed?: boolean; label?: string };
+const edges: Edge[] = [
+  { a: 'user', as: 'b', b: 'team_user', bs: 't' },
+  { a: 'team_user', as: 'b', b: 'team', bs: 't' },
+  { a: 'user', as: 'r', b: 'website', bs: 'l' },
+  { a: 'team', as: 'r', b: 'website', bs: 'l' },
+  { a: 'website', as: 'r', b: 'session', bs: 'l', dashed: true },
+  { a: 'website', as: 'r', b: 'website_event', bs: 'l', dashed: true },
+  { a: 'session', as: 'b', b: 'website_event', bs: 't' },
+  { a: 'session', as: 'r', b: 'session_data', bs: 'l' },
+  { a: 'session', as: 'r', b: 'session_link', bs: 'l', dashed: true },
+  { a: 'website_event', as: 'r', b: 'event_data', bs: 'l' },
+  { a: 'website_event', as: 'r', b: 'revenue', bs: 'l', dashed: true },
+  { a: 'link · pixel', as: 'r', b: 'website_event', bs: 'l', dashed: true },
+];
+const paths = edges.map((e) => {
+  const [x1, y1] = mid(byName[e.a], e.as);
+  const [x2, y2] = mid(byName[e.b], e.bs);
+  const vertical = e.as === 'b' || e.as === 't';
+  const d = vertical
+    ? `M${x1},${y1} C${x1},${(y1 + y2) / 2} ${x2},${(y1 + y2) / 2} ${x2},${y2}`
+    : `M${x1},${y1} C${(x1 + x2) / 2},${y1} ${(x1 + x2) / 2},${y2} ${x2},${y2}`;
+  return { d, dashed: !!e.dashed };
+});
+---
+<Base title="Data model — Umami Engineering" description="Umami's tables grouped into domains, the hit lifecycle, and the ERD spine." active="data-model">
+  <style>
+    .hero .eyebrow { color: var(--d-storage); }
+    h2 .num { color: var(--d-storage); }
+    .stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 22px 0 8px; }
+    .stat-cell { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 12px 14px; min-width: 0; }
+    .stat-cell .v { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--ink); }
+    .stat-cell .l { font-size: 13px; color: var(--ink-soft); }
+    @media (max-width: 720px) { .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Foundation · Storage</div>
+    <h1>Data model</h1>
+    <p>What are Umami's nouns, how do they relate, and which table does every chart read? Short answer: almost everything you see in the dashboard is computed from one wide, append-only table — <code>website_event</code>.</p>
+  </section>
+
+  <div class="stat-row">
+    <div class="stat-cell"><div class="v">26</div><div class="l">Prisma models in <span class="path">prisma/schema.prisma</span></div></div>
+    <div class="stat-cell"><div class="v">26</div><div class="l">Postgres migrations (<span class="path">01_init</span> … <span class="path">26_add_api_key</span>)</div></div>
+    <div class="stat-cell"><div class="v">10 + 4</div><div class="l">ClickHouse tables + materialized views</div></div>
+    <div class="stat-cell"><div class="v">5</div><div class="l"><code>event_type</code> values</div></div>
+  </div>
+
+  <Callout type="key">
+    <p><strong>Read <code>website_event</code> first.</strong> Every dashboard number — page views, visitors, visits, channels, funnels — is a query over that one table. Sessions and visits are just ids on its rows; on ClickHouse even the session's attributes live there.</p>
+  </Callout>
+
+  <nav class="anchorlist">
+    <a href="#domains">1 · Domains</a>
+    <a href="#lifecycle">2 · Hit lifecycle</a>
+    <a href="#erd">3 · The spine</a>
+    <a href="#clickhouse">4 · ClickHouse shape</a>
+    <a href="#custom-data">5 · Custom data</a>
+  </nav>
+
+  <h2 id="domains"><span class="num">1</span>The 26 models fall into four domains, and only one of them is hot</h2>
+  <p class="lede">Tenancy and saved-analysis tables are small and edited by people; the write path is written by every visitor on every page view.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Domain</th><th>Tables (Postgres names)</th><th>Written by</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Tenancy &amp; auth</strong></td><td><code>user</code>, <code>team</code>, <code>team_user</code>, <code>api_key</code>, <code>two_factor_auth</code>, <code>two_factor_backup_code</code>, <code>two_factor_otp_used</code>, <code>two_factor_rate_limit</code>, <code>app_setting</code></td><td>Settings and admin UI, <span class="path">src/queries/prisma/user.ts</span>, <span class="path">team.ts</span>, <span class="path">apiKey.ts</span></td></tr>
+        <tr><td><strong>Tracked entities</strong></td><td><code>website</code>, <code>link</code>, <code>pixel</code></td><td>Users; each is a <em>source</em> of events (see <a href="architecture-flows.html#link-click">link clicks</a>)</td></tr>
+        <tr><td><strong>Write path (hot)</strong></td><td><code>session</code>, <code>session_link</code>, <code>website_event</code>, <code>event_data</code>, <code>session_data</code>, <code>revenue</code>, <code>heatmap_event</code>, <code>session_replay</code></td><td>Visitors, via <span class="path">src/app/api/send/route.ts</span> and <span class="path">src/app/api/record/route.ts</span></td></tr>
+        <tr><td><strong>Saved analysis</strong></td><td><code>report</code>, <code>segment</code>, <code>board</code>, <code>annotation</code>, <code>share</code>, <code>session_replay_saved</code></td><td>Users building reports, boards and public shares</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>A <code>website</code> is owned by <em>either</em> a user or a team (<code>user_id</code> / <code>team_id</code>, both nullable), and soft-deleted through <code>deleted_at</code>. <code>link</code> and <code>pixel</code> follow the same ownership shape and add a unique <code>slug</code>. <code>share</code> is polymorphic: <code>entity_id</code> plus an integer <code>share_type</code>, with no foreign key.</p>
+
+  <h2 id="lifecycle"><span class="num">2</span>A hit lives for one request and leaves exactly one event row</h2>
+  <p class="lede">There is no "pending" state in the database. Every state below exists only inside <span class="path">src/app/api/send/route.ts</span>; what survives is the row.</p>
+  <p class="chips">
+    <span class="pill pill-neutral">received</span>
+    <span class="pill pill-mid">validated (zod)</span>
+    <span class="pill pill-mid">session derived</span>
+    <span class="pill pill-mid">visit derived</span>
+    <span class="pill pill-happy">website_event inserted</span>
+    <span class="pill pill-stop">bot → 200 &#123;beep: boop&#125;</span>
+    <span class="pill pill-stop">IGNORE_IP → 403</span>
+  </p>
+  <p>The row's <code>event_type</code> records which kind of hit it was. The route picks it from the payload: a <code>link</code> id wins, then <code>pixel</code>, then a non-empty <code>name</code> (custom event), else page view; performance beacons arrive with <code>type: 'performance'</code>.</p>
+  <Code code={eventTypeSrc} lang="ts" theme="github-light" />
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>event_type</th><th>Meaning</th><th>Who writes it</th><th>Notable</th></tr></thead>
+      <tbody>
+        <tr><td><span class="pill pill-neutral">1</span></td><td>page view</td><td>tracker auto-track, <code>umami.track()</code></td><td>Default when the payload has no <code>name</code></td></tr>
+        <tr><td><span class="pill pill-neutral">2</span></td><td>custom event</td><td><code>umami.track('signup', data)</code>, <code>data-umami-event</code> clicks</td><td>Excluded from channel attribution (<code>event_type NOT IN (2, 5)</code>)</td></tr>
+        <tr><td><span class="pill pill-neutral">3</span></td><td>link event</td><td><span class="path">src/app/(collect)/q/[slug]/route.ts</span></td><td>Short-link click, then redirect</td></tr>
+        <tr><td><span class="pill pill-neutral">4</span></td><td>pixel event</td><td><span class="path">src/app/(collect)/p/[slug]/route.ts</span></td><td>Tracking-pixel load</td></tr>
+        <tr><td><span class="pill pill-neutral">5</span></td><td>performance</td><td>tracker with <code>data-performance="true"</code></td><td>Fills <code>lcp</code>, <code>inp</code>, <code>cls</code>, <code>fcp</code>, <code>ttfb</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="erd"><span class="num">3</span>The spine is website → session → website_event, and most of its arrows are not foreign keys</h2>
+  <p class="lede">Solid lines are Prisma relations; dashed lines are bare id columns with no relation declared. With <code>relationMode = "prisma"</code>, none of them is a database-level foreign key.</p>
+  <div class="diagram">
+    <svg width="1010" height="400" viewBox="0 0 1010 400" role="img" aria-label="Entity-relationship diagram of Umami's core tables">
+      <defs>
+        <marker id="erd-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#8a8076" />
+        </marker>
+      </defs>
+      {paths.map((p) => (
+        <path d={p.d} fill="none" stroke="#8a8076" stroke-width="1.6" stroke-dasharray={p.dashed ? '5 4' : undefined} marker-end="url(#erd-arrow)" />
+      ))}
+      {boxes.map((b) => (
+        <g transform={`translate(${b.x},${b.y})`}>
+          <rect width={W} height={H(b)} rx="8" fill="#ffffff" stroke={b.tone} stroke-width="1.5" />
+          <rect width={W} height="26" rx="8" fill={b.tone} />
+          <rect y="18" width={W} height="8" fill={b.tone} />
+          <text x="10" y="18" font-family="ui-monospace, Menlo, monospace" font-size="13" font-weight="700" fill="#ffffff">{b.name}</text>
+          {b.fields.map((f, i) => (
+            <text x="10" y={44 + i * 18} font-family="ui-monospace, Menlo, monospace" font-size="12" fill="#2a241e">{f}</text>
+          ))}
+        </g>
+      ))}
+    </svg>
+    <div class="cap">Core of <span style="font-family: ui-monospace, Menlo, monospace;">prisma/schema.prisma</span>. Dashed = id column only. Purple = tenancy, teal-blue = tracked entity, blue = session side, green = event side.</div>
+  </div>
+  <Code code={relationSrc} lang="prisma" theme="github-light" />
+  <Callout type="warn">
+    <p><strong>Joins are by convention, not constraint.</strong> <code>WebsiteEvent</code> declares no relation to <code>Website</code>, and <code>Session</code> declares none to <code>Website</code> either, so <code>prisma.websiteEvent.findMany(&#123; include: &#123; website: true &#125; &#125;)</code> does not exist. Analytics code joins on <code>website_id</code> in raw SQL instead (<span class="path">src/queries/sql/</span>).</p>
+  </Callout>
+  <p><code>visit_id</code> is not a table: it is a deterministic UUID derived from the session id and the hour (see <a href="session-identity.html#visit">Session &amp; visit identity</a>). <code>session_link</code> records every (website, distinct id, session) triple seen by an <code>identify</code> call so a logged-in user's anonymous sessions can be stitched together.</p>
+
+  <h2 id="clickhouse"><span class="num">4</span>ClickHouse has no session table — the session is copied onto every event</h2>
+  <p class="lede">With <code>CLICKHOUSE_URL</code> set, the same <code>/api/send</code> request skips <code>createSession</code> and writes browser, OS, device, country and <code>distinct_id</code> as columns of <code>website_event</code>.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th></th><th>PostgreSQL (Prisma)</th><th>ClickHouse (<span class="path">db/clickhouse/schema.sql</span>)</th></tr></thead>
+      <tbody>
+        <tr><td>Session attributes</td><td>One <code>session</code> row per session id</td><td>Columns on every <code>website_event</code> row</td></tr>
+        <tr><td>Missing values</td><td><code>NULL</code> (nullable columns)</td><td><code>''</code> — text columns are non-<code>Nullable</code> <code>String</code></td></tr>
+        <tr><td>Pre-aggregation</td><td>None; indexes on <code>(website_id, created_at, …)</code></td><td><code>website_event_stats_hourly</code>, <code>website_revenue</code>, <code>event_data_pivot</code>, <code>session_data_pivot</code>, each fed by a materialized view</td></tr>
+        <tr><td>Sort key</td><td>—</td><td><code>(toStartOfHour(created_at), website_id, session_id, visit_id, created_at)</code></td></tr>
+        <tr><td>Migrations</td><td>26 in <span class="path">prisma/migrations/</span></td><td>14 in <span class="path">db/clickhouse/migrations/</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <Callout type="note">
+    <p>The <code>NULL</code> vs <code>''</code> difference is not cosmetic. SQL that compares <code>referrer_domain = ''</code> behaves differently on the two backends — <a href="channel-attribution.html#null">Channel attribution</a> shows a real case where it changes the answer.</p>
+  </Callout>
+
+  <h2 id="custom-data"><span class="num">5</span>Custom data is stored as typed key/value rows, one per property</h2>
+  <p class="lede"><code>umami.track('signup', &#123; plan: 'pro' &#125;)</code> becomes one <code>website_event</code> row plus one <code>event_data</code> row per key.</p>
+  <dl class="kgrid">
+    <dt><code>event_data</code></dt><dd>Keyed by <code>website_event_id</code>; <code>data_key</code> plus exactly one of <code>string_value</code> / <code>number_value</code> (<code>Decimal(19,4)</code>) / <code>date_value</code>, tagged by <code>data_type</code>.</dd>
+    <dt><code>session_data</code></dt><dd>Written by <code>identify</code> calls; unique on <code>(session_id, data_key)</code>, so a later identify overwrites a key.</dd>
+    <dt><code>data_type</code></dt><dd><code>1</code> string · <code>2</code> number · <code>3</code> boolean · <code>4</code> date · <code>5</code> array (<code>DATA_TYPE</code> in <span class="path">src/lib/constants.ts</span>).</dd>
+    <dt><code>revenue</code></dt><dd>Written alongside <code>event_data</code> on Postgres when the event data has <code>revenue &gt; 0</code> and a <code>currency</code> (<span class="path">src/queries/sql/events/saveEvent.ts</span>). On ClickHouse it is a materialized view, <code>website_revenue_mv</code>.</dd>
+  </dl>
+
+  <Footer>
+    <span>Data model — foundation</span>
+    <span>Source: <span class="path">prisma/schema.prisma</span>, <span class="path">db/clickhouse/schema.sql</span>, <span class="path">src/lib/constants.ts</span>, <span class="path">src/queries/sql/events/saveEvent.ts</span></span>
+  </Footer>
+</Base>

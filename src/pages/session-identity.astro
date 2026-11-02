@@ -1,0 +1,344 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+
+const cryptoSrc = `export function hash(...args: string[]) {
+  return crypto.createHash(HASH_ALGO).update(args.join('')).digest(HASH_ENCODING); // sha512, hex
+}
+
+export function secret() {
+  return hash(process.env.APP_SECRET || process.env.DATABASE_URL);
+}
+
+export function uuid(...args: any) {
+  if (args.length) {
+    return v5(hash(...args, secret()), v5.DNS);
+  }
+
+  return process.env.USE_UUIDV7 ? v7() : v4();
+}
+
+export function getSalt(saltRotation: string, createdAt: Date): string {
+  return hash(
+    (saltRotation === 'day' ? startOfDay : saltRotation === 'week' ? startOfWeek : startOfMonth)(
+      createdAt,
+    ).toUTCString(),
+  );
+}`;
+
+const routeSrc = `const createdAt = timestamp ? new Date(timestamp * 1000) : new Date();
+const now = Math.floor(Date.now() / 1000);
+const distinctId = truncateString(id, FIELD_LENGTH.distinctId);
+
+const saltRotation = process.env.SALT_ROTATION || 'month';
+const sessionSalt = getSalt(saltRotation, createdAt);
+const visitSalt = hash(startOfHour(createdAt).toUTCString());
+
+const sessionId = uuid(sourceId, ip, userAgent, sessionSalt, distinctId ?? '');
+// …
+let visitId = cache?.visitId || uuid(sessionId, visitSalt);
+let iat = cache?.iat || now;
+
+// Expire visit after 30 minutes
+if (!timestamp && now - iat > 1800) {
+  visitId = uuid(sessionId, visitSalt);
+  iat = now;
+}`;
+
+const fixtureSrc = `process.env.APP_SECRET = 'route-send-test-secret';
+const WEBSITE_ID = '11111111-1111-4111-8111-111111111111';
+const defaultClientInfo = { ip: '203.0.113.5', userAgent: 'Mozilla/5.0', /* … */ };
+
+test('a valid cache token skips website lookup and session creation when it matches the computed session', async () => {
+  const timestamp = 1704067200;
+  const token = makeCacheToken({ sessionId: makeComputedSessionId(WEBSITE_ID, timestamp) });`;
+---
+<Base title="Session & visit identity — Umami Engineering" description="How /api/send derives deterministic session and visit ids, with a widget that recomputes a real one." active="session-identity">
+  <style>
+    .hero .eyebrow { color: var(--d-identity); }
+    h2 .num { color: var(--d-identity); }
+    .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; }
+    .split > * { min-width: 0; }
+    @media (max-width: 800px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  </style>
+  <style is:global>
+    /* Widget kit — global because the output rows are created by script (authoring rule 6). */
+    html .widget { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent, var(--brand)); border-radius: var(--radius); padding: 16px 18px; margin: 20px 0; box-shadow: var(--shadow-sm); }
+    html .wtitle { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 17px; flex-wrap: wrap; }
+    html .wbadge { background: var(--accent, var(--brand)); color: #ffffff; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; }
+    html[data-theme="dark"] .wbadge { color: #1d1b19; }
+    html .wsub { color: var(--ink-soft); font-size: 14.5px; margin: 4px 0 12px; }
+    html .wcontrols { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 10px 0 14px; }
+    html .wctl { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-soft); min-width: 0; flex: 1 1 200px; }
+    html .wctl input[type="text"], html .wctl select { font: 13px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink); min-width: 0; width: 100%; }
+    html .wctl input[type="range"] { width: 100%; accent-color: var(--accent, var(--brand)); }
+    html .wctl .val { font-family: var(--mono); color: var(--accent, var(--brand-dark)); font-weight: 700; overflow-wrap: anywhere; }
+    html .wout { border-top: 1px dashed var(--line-strong); padding-top: 12px; }
+    html .wrow { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 4px 12px; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+    html .wrow .k { color: var(--ink-soft); }
+    html .wrow .v { font-family: var(--mono); color: var(--ink); overflow-wrap: anywhere; min-width: 0; }
+    html .wrow .v.big { font-size: 15px; font-weight: 700; color: var(--accent, var(--brand-dark)); }
+    @media (max-width: 560px) { html .wrow { grid-template-columns: minmax(0, 1fr); } }
+    html .verdict { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid; font-size: 14.5px; }
+    html .verdict.ok { background: #e6f5ea; color: #1d5a2f; border-color: #b9e0c3; }
+    html .verdict.warn { background: #fdf2dc; color: #6e4800; border-color: #f0d9a6; }
+    html .verdict.stop { background: #fde8e6; color: #8f2417; border-color: #f3c3bd; }
+    html[data-theme="dark"] .verdict.ok { background: #1c3524; color: #a6e3b8; border-color: #2d5a3a; }
+    html[data-theme="dark"] .verdict.warn { background: #3a2f17; color: #f1d08a; border-color: #5e4a1f; }
+    html[data-theme="dark"] .verdict.stop { background: #3d211d; color: #f6b3aa; border-color: #6a3329; }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Deep-dive · Identity</div>
+    <h1>Session &amp; visit identity</h1>
+    <p>How does Umami know two page views belong to the same visitor without a cookie? It recomputes the same UUID from the same inputs on every hit — and this page lets you recompute one yourself.</p>
+  </section>
+
+  <nav class="anchorlist">
+    <a href="#hash">1 · The hash</a>
+    <a href="#widget">2 · Recompute it</a>
+    <a href="#timezone">3 · Time-zone trap</a>
+    <a href="#visit">4 · Visits</a>
+    <a href="#identify">5 · Identified users</a>
+    <a href="#consequences">6 · Consequences</a>
+  </nav>
+
+  <h2 id="hash"><span class="num">1</span>A session id is a v5 UUID of who you look like this month</h2>
+  <p class="lede">Five inputs go into one SHA-512, salted with the app secret; the hex digest is then the <em>name</em> of a v5 UUID in the DNS namespace.</p>
+  <div class="split">
+    <div><Code code={cryptoSrc} lang="ts" theme="github-light" /></div>
+    <div><Code code={routeSrc} lang="ts" theme="github-light" /></div>
+  </div>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Input</th><th>Source</th><th>Changes when…</th></tr></thead>
+      <tbody>
+        <tr><td><code>sourceId</code></td><td><code>payload.website</code> (or the link / pixel id)</td><td>Never for one site — sessions are per website</td></tr>
+        <tr><td><code>ip</code></td><td><code>payload.ip</code> or the request headers (<span class="path">src/lib/ip.ts</span>)</td><td>Network changes (Wi-Fi → mobile)</td></tr>
+        <tr><td><code>userAgent</code></td><td><code>payload.userAgent</code> or the <code>user-agent</code> header</td><td>Browser updates</td></tr>
+        <tr><td><code>sessionSalt</code></td><td><code>getSalt(SALT_ROTATION || 'month', createdAt)</code></td><td>The month (or week/day) rolls over</td></tr>
+        <tr><td><code>distinctId</code></td><td><code>payload.id</code>, truncated to 50 chars; <code>''</code> when absent</td><td><code>umami.identify()</code> is called</td></tr>
+        <tr><td><code>secret()</code></td><td><code>sha512(APP_SECRET || DATABASE_URL)</code></td><td>Someone rotates <code>APP_SECRET</code> — every future id changes</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <Callout type="key">
+    <p><strong>The session id is never stored on the client and never looked up.</strong> It is recomputed from scratch on every hit. Two hits get the same session exactly when all six inputs above are byte-identical — which is why the same person shows up as a new session on the first of the month.</p>
+  </Callout>
+
+  <h2 id="widget"><span class="num">2</span>Recompute a real session id from the route's own test fixture</h2>
+  <p class="lede">The defaults are the fixture in <span class="path">src/app/api/send/route.test.ts</span>: its <code>APP_SECRET</code>, <code>WEBSITE_ID</code>, client IP and user agent, and the fixed timestamp <code>1704067200</code> (2024-01-01 00:00 UTC) from the cache-token test.</p>
+  <Code code={fixtureSrc} lang="ts" theme="github-light" />
+
+  <div class="widget a-identity" id="sid-widget">
+    <div class="wtitle"><span class="wbadge">Interactive</span><span>What session and visit id does this hit get?</span></div>
+    <p class="wsub">Edit any input; the ids are recomputed in your browser with Web Crypto (SHA-512 + SHA-1 v5). With the defaults it reproduces the id the route computes for its test fixture on a UTC server.</p>
+    <div class="wcontrols">
+      <label class="wctl">APP_SECRET <input type="text" id="sid-secret" value="route-send-test-secret" spellcheck="false" /></label>
+      <label class="wctl">website id <input type="text" id="sid-website" value="11111111-1111-4111-8111-111111111111" spellcheck="false" /></label>
+      <label class="wctl">ip <input type="text" id="sid-ip" value="203.0.113.5" spellcheck="false" /></label>
+      <label class="wctl">user agent <input type="text" id="sid-ua" value="Mozilla/5.0" spellcheck="false" /></label>
+      <label class="wctl">distinct id (payload.id) <input type="text" id="sid-distinct" value="" placeholder="(none)" spellcheck="false" /></label>
+      <label class="wctl">SALT_ROTATION
+        <select id="sid-rotation"><option value="month" selected>month (default)</option><option value="week">week</option><option value="day">day</option></select>
+      </label>
+      <label class="wctl">server time zone (fixed offset)
+        <select id="sid-tz"><option value="0" selected>UTC +00:00</option><option value="-480">America/Los_Angeles in January, −08:00</option><option value="330">Asia/Kolkata, +05:30</option></select>
+      </label>
+      <label class="wctl">hit time: hours from fixture <span class="val" id="sid-hours-val">+0 h</span>
+        <input type="range" id="sid-hours" min="-48" max="48" step="1" value="0" />
+      </label>
+    </div>
+    <div class="wout" id="sid-out" aria-live="polite"></div>
+  </div>
+  <p class="small muted">Verification: the default <code>42656d85-a38f-5f46-b6ed-93af87a2c775</code> was produced by a standalone Node re-implementation of <code>hash</code>, <code>uuid</code> and <code>getSalt</code> (Node <code>crypto</code>, run with <code>TZ=UTC</code>), whose v5 step was itself checked against the RFC 4122 reference vector <code>uuid5(DNS, 'python.org') = 886313e1-3b8a-5372-9b90-0c9aee199e5d</code>. The route test computes this id at run time rather than hard-coding it, so no literal copy exists in the repo.</p>
+
+  <h2 id="timezone"><span class="num">3</span>The month boundary is the server's local midnight, not UTC's</h2>
+  <p class="lede"><code>startOfMonth</code>, <code>startOfWeek</code> and <code>startOfHour</code> from date-fns work in the Node process's local time zone; only the resulting instant is formatted as UTC.</p>
+  <Callout type="warn">
+    <p><strong>Same hit, three servers, three session ids.</strong> The fixture instant 2024-01-01 00:00 UTC is still December 31 in Los Angeles, so a server with <code>TZ=America/Los_Angeles</code> salts with <code>Fri, 01 Dec 2023 08:00:00 GMT</code> and returns <code>8f2bdb44-3b1e-53cd-b274-f611eea5a107</code>. On <code>Asia/Kolkata</code> (+05:30) even the <em>hour</em> bucket shifts by 30 minutes, changing the visit id too. Pick the time zone in the widget to see it. Running two app instances with different <code>TZ</code> settings behind one load balancer splits sessions at every boundary.</p>
+  </Callout>
+  <p>The <span class="path">Dockerfile</span> sets no <code>TZ</code>, so the official image salts on UTC boundaries; a bare-metal install inherits the host's zone. <code>startOfWeek</code> uses date-fns' default week start, Sunday.</p>
+
+  <h2 id="visit"><span class="num">4</span>A visit is the session plus the hour, pinned by the cache token for up to 30 minutes</h2>
+  <p class="lede"><code>visit_id = uuid(sessionId, hash(startOfHour(createdAt).toUTCString()))</code> — but the tracker's cache token can keep an older visit id alive.</p>
+  <div class="steps a-identity">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">No cache token</div><div class="d">Visit id is derived from the current hour. Two hits at 10:59 and 11:01 land in different visits.</div><div class="meta">uuid(sessionId, visitSalt)</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Cache token present, under 30 minutes old</div><div class="d"><code>visitId</code> and <code>iat</code> come from the token — so the 10:59 visit continues at 11:01 for a tracker that kept its token.</div><div class="meta">cache?.visitId · cache?.iat</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Token <code>iat</code> older than 1800 s</div><div class="d">A new visit id is derived from the current hour and <code>iat</code> resets. Skipped when the payload carries an explicit <code>timestamp</code> (imports, backfills).</div><div class="meta">!timestamp &amp;&amp; now - iat &gt; 1800</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Session drift</div><div class="d">If the token's <code>sessionId</code> differs from the recomputed one (new month, new IP), a fresh visit starts and, on Postgres, the session row is (re)created.</div><div class="meta">sessionDrift · shouldEnsureSession</div></div></div>
+  </div>
+  <Callout type="warn">
+    <p><strong>The 30 minutes are a cap, not an inactivity timeout.</strong> <code>let iat = cache?.iat || now</code> carries the token's <code>iat</code> forward unchanged on every response, so it records when the visit's token was first issued. An active visitor is rolled into a "new" visit 30 minutes after the first hit — and because that new id is re-derived from the current hour, it equals the old id if the clock hour has not changed. Tested by <em>"regenerates the visit when the cached iat is older than 30 minutes"</em> in <span class="path">route.test.ts</span>.</p>
+  </Callout>
+  <p>The browser side of the token is covered in <a href="tracker-script.html#cache">The tracker script</a>.</p>
+
+  <h2 id="identify"><span class="num">5</span>Identifying a user forks a new session on purpose</h2>
+  <p class="lede"><code>distinctId</code> is part of the hash, so <code>umami.identify('user-1')</code> moves that visitor into a different session from the anonymous one sharing their IP and user agent.</p>
+  <p>The test <em>"uses distinct IDs to separate sessions with the same client fingerprint"</em> asserts exactly that, and <em>"normalizes distinct IDs before calculating the session ID"</em> asserts that two ids sharing their first 50 characters collapse to one session — <code>truncateString(id, 50)</code> runs before hashing. Try a 51-character id in the widget. To connect the anonymous and identified sessions, the <code>identify</code> branch writes <code>session_link (website_id, distinct_id, session_id)</code> and updates the session's <code>distinct_id</code> (see <a href="data-model.html#erd">data model</a>).</p>
+
+  <h2 id="consequences"><span class="num">6</span>Determinism buys privacy and costs accuracy at the edges</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Situation</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td>Month rolls over (default rotation)</td><td>Every returning visitor gets a new session id; "unique visitors" for a range spanning the boundary double-count them.</td></tr>
+        <tr><td><code>APP_SECRET</code> unset</td><td><code>secret()</code> falls back to <code>DATABASE_URL</code>; changing the database password re-keys every session.</td></tr>
+        <tr><td>Office NAT, identical browsers</td><td>Distinct people collapse into one session.</td></tr>
+        <tr><td>Arguments are concatenated without a separator</td><td><code>hash('ab', 'c') === hash('a', 'bc')</code>; harmless for real IPs and UAs, but worth knowing before you reuse <code>uuid()</code> elsewhere.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <Footer>
+    <span>Session &amp; visit identity — deep-dive</span>
+    <span>Source: <span class="path">src/lib/crypto.ts</span>, <span class="path">src/app/api/send/route.ts</span>, <span class="path">src/app/api/send/route.test.ts</span>, <span class="path">src/lib/constants.ts</span></span>
+  </Footer>
+
+  <script is:inline>
+    (function () {
+      var root = document.getElementById('sid-widget');
+      var out = document.getElementById('sid-out');
+      if (!root || !out) return;
+
+      var DNS = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+      var FIXTURE_TS = 1704067200;
+      var KNOWN = {
+        session: '42656d85-a38f-5f46-b6ed-93af87a2c775',
+        visit: 'b0d0cc61-9131-5bcd-a4a6-5720d5c646c6'
+      };
+      // Exact values live here; controls are read only when the user moves them.
+      var state = {
+        secret: 'route-send-test-secret',
+        website: '11111111-1111-4111-8111-111111111111',
+        ip: '203.0.113.5',
+        ua: 'Mozilla/5.0',
+        distinct: '',
+        rotation: 'month',
+        tzMinutes: 0,
+        hours: 0
+      };
+      var subtle = window.crypto && window.crypto.subtle;
+      var enc = new TextEncoder();
+      var run = 0;
+
+      function hex(buf) {
+        var b = new Uint8Array(buf), s = '';
+        for (var i = 0; i < b.length; i++) s += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+        return s;
+      }
+      function sha512(str) { return subtle.digest('SHA-512', enc.encode(str)).then(hex); }
+      function hash() { return sha512([].slice.call(arguments).join('')); }
+      function v5(name) {
+        var ns = DNS.replace(/-/g, '');
+        var nsBytes = new Uint8Array(16);
+        for (var i = 0; i < 16; i++) nsBytes[i] = parseInt(ns.substr(i * 2, 2), 16);
+        var nameBytes = enc.encode(name);
+        var all = new Uint8Array(16 + nameBytes.length);
+        all.set(nsBytes, 0); all.set(nameBytes, 16);
+        return subtle.digest('SHA-1', all).then(function (buf) {
+          var b = new Uint8Array(buf).slice(0, 16);
+          b[6] = (b[6] & 0x0f) | 0x50;
+          b[8] = (b[8] & 0x3f) | 0x80;
+          var x = hex(b);
+          return x.slice(0, 8) + '-' + x.slice(8, 12) + '-' + x.slice(12, 16) + '-' + x.slice(16, 20) + '-' + x.slice(20);
+        });
+      }
+      // date-fns startOf* in a process whose local zone is a fixed offset (minutes east of UTC).
+      function startOf(unit, ms, off) {
+        var local = new Date(ms + off * 60000); // read the UTC fields as local wall-clock fields
+        var y = local.getUTCFullYear(), m = local.getUTCMonth(), d = local.getUTCDate(), h = local.getUTCHours();
+        var wall;
+        if (unit === 'month') wall = Date.UTC(y, m, 1);
+        else if (unit === 'week') wall = Date.UTC(y, m, d - local.getUTCDay());
+        else if (unit === 'day') wall = Date.UTC(y, m, d);
+        else wall = Date.UTC(y, m, d, h);
+        return new Date(wall - off * 60000);
+      }
+
+      function row(k, v, cls) {
+        var r = document.createElement('div'); r.className = 'wrow';
+        var a = document.createElement('div'); a.className = 'k'; a.textContent = k;
+        var b = document.createElement('div'); b.className = 'v' + (cls ? ' ' + cls : ''); b.textContent = v;
+        r.appendChild(a); r.appendChild(b);
+        return r;
+      }
+
+      function render() {
+        if (!subtle) {
+          out.textContent = 'Web Crypto (crypto.subtle) is unavailable in this context, so the ids cannot be recomputed here.';
+          return;
+        }
+        var my = ++run;
+        var ts = FIXTURE_TS + state.hours * 3600;
+        var created = ts * 1000;
+        var distinct = state.distinct ? state.distinct.substring(0, 50) : '';
+        var saltInput = startOf(state.rotation, created, state.tzMinutes).toUTCString();
+        var hourInput = startOf('hour', created, state.tzMinutes).toUTCString();
+        var secretHex, sessionId, visitId, salt;
+        hash(state.secret).then(function (s) {
+          secretHex = s;
+          return hash(saltInput);
+        }).then(function (s) {
+          salt = s;
+          return hash(state.website, state.ip, state.ua, salt, distinct, secretHex);
+        }).then(v5).then(function (sid) {
+          sessionId = sid;
+          return hash(hourInput);
+        }).then(function (visitSalt) {
+          return hash(sessionId, visitSalt, secretHex);
+        }).then(v5).then(function (vid) {
+          visitId = vid;
+          if (my !== run) return; // a newer render superseded this one
+          out.textContent = '';
+          out.appendChild(row('createdAt', new Date(created).toISOString() + '  (timestamp ' + ts + ')'));
+          out.appendChild(row('secret()', secretHex.slice(0, 24) + '…'));
+          out.appendChild(row('salt input', saltInput));
+          out.appendChild(row('distinctId used', distinct === '' ? "'' (anonymous)" : distinct + (state.distinct.length > 50 ? '  (truncated from ' + state.distinct.length + ' chars)' : '')));
+          out.appendChild(row('session_id', sessionId, 'big'));
+          out.appendChild(row('hour bucket', hourInput));
+          out.appendChild(row('visit_id', visitId, 'big'));
+          var v = document.createElement('div');
+          var same = sessionId === KNOWN.session;
+          v.className = 'verdict ' + (same ? 'ok' : 'warn');
+          v.id = 'sid-verdict';
+          v.textContent = same
+            ? (visitId === KNOWN.visit
+              ? 'Matches the fixture session (' + KNOWN.session + ') and visit — this is what the route computes on a UTC server.'
+              : 'Same session as the fixture, different visit: the hour bucket changed but the salt did not.')
+            : 'New session: at least one input to the hash differs from the fixture (' + KNOWN.session + ').';
+          out.appendChild(v);
+          root.setAttribute('data-session-id', sessionId);
+          root.setAttribute('data-visit-id', visitId);
+        }).catch(function (e) {
+          out.textContent = 'Could not compute: ' + e;
+        });
+      }
+
+      function bindText(id, key) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('input', function () { state[key] = el.value; render(); });
+      }
+      bindText('sid-secret', 'secret');
+      bindText('sid-website', 'website');
+      bindText('sid-ip', 'ip');
+      bindText('sid-ua', 'ua');
+      bindText('sid-distinct', 'distinct');
+      var rot = document.getElementById('sid-rotation');
+      if (rot) rot.addEventListener('change', function () { state.rotation = rot.value; render(); });
+      var tz = document.getElementById('sid-tz');
+      if (tz) tz.addEventListener('change', function () { state.tzMinutes = Number(tz.value); render(); });
+      var hrs = document.getElementById('sid-hours');
+      var hrsVal = document.getElementById('sid-hours-val');
+      if (hrs) hrs.addEventListener('input', function () {
+        state.hours = Number(hrs.value);
+        if (hrsVal) hrsVal.textContent = (state.hours >= 0 ? '+' : '') + state.hours + ' h';
+        render();
+      });
+      render();
+    })();
+  </script>
+</Base>

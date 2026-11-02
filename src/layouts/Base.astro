@@ -1,0 +1,43 @@
+---
+import Nav from '../components/Nav.astro';
+
+interface Props {
+  title: string;
+  description?: string;
+  active?: string;
+}
+
+const { title, description, active } = Astro.props;
+// Base-path-safe asset URLs: works at /, the production subpath, and PR-preview subpaths.
+const raw = import.meta.env.BASE_URL;
+const base = raw.endsWith('/') ? raw : `${raw}/`;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    {description && <meta name="description" content={description} />}
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href={`${base}styles.css`} />
+    <script src={`${base}nav.js`} defer is:inline></script>
+    <script is:inline>
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('umami-guides-theme'); } catch (e) { t = null; }
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script>
+    <slot name="head" />
+  </head>
+  <body>
+    <Nav active={active} />
+    <main class="wrap">
+      <slot />
+    </main>
+  </body>
+</html>

@@ -1,0 +1,22 @@
+---
+interface Props { tree: string }
+const { tree } = Astro.props;
+
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+const lines = tree.split('\n');
+while (lines.length && lines[0].trim() === '') lines.shift();
+while (lines.length && lines[lines.length - 1].trim() === '') lines.pop();
+
+const html = lines
+  .map((line) => {
+    const i = line.indexOf('#');
+    const code = i >= 0 ? line.slice(0, i) : line;
+    const comment = i >= 0 ? line.slice(i) : '';
+    // Wrap every path segment ending in "/" (no spaces or tree glyphs) in a directory span.
+    const body = esc(code).replace(/([^\s│├└─]+\/)/g, '<span class="dir">$1</span>');
+    return body + (comment ? `<span class="cmt">${esc(comment)}</span>` : '');
+  })
+  .join('\n');
+---
+<pre class="tree" set:html={html}></pre>

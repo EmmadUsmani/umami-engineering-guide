@@ -1,0 +1,70 @@
+---
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+---
+<Base title="Umami Engineering — new-engineer orientation" description="Orientation guides to the Umami analytics codebase: data model, architecture, flows and deep dives." active="index">
+  <section class="hero">
+    <div class="eyebrow">New-engineer orientation</div>
+    <h1>Umami, from the tracker to the dashboard</h1>
+    <p>Umami is a privacy-focused, cookieless web analytics app: a small tracker script posts page views and events to one collection endpoint, a Next.js server turns each hit into a row, and every dashboard number is a SQL query over those rows — on PostgreSQL, or on ClickHouse at scale. These guides explain how; the code in <code>umami-software/umami</code> (version <code>3.4.1</code> as read for these pages) is always the source of truth.</p>
+  </section>
+
+  <Callout type="key">
+    <p><strong>The one mental model: a visitor is a hash, not a record.</strong> There are no cookies and no visitor table keyed by a browser id. Every hit to <code>POST /api/send</code> recomputes <code>session_id = uuid(website, ip, user-agent, monthly salt)</code> and <code>visit_id = uuid(session, hourly salt)</code>, then writes one <code>website_event</code> row. A hit's life is short:</p>
+    <p class="chips">
+      <span class="pill pill-neutral">received</span>
+      <span class="pill pill-mid">validated</span>
+      <span class="pill pill-mid">session + visit derived</span>
+      <span class="pill pill-happy">stored as website_event</span>
+      <span class="pill pill-stop">dropped: bot → &#123;beep: boop&#125;</span>
+      <span class="pill pill-stop">403: IGNORE_IP</span>
+      <span class="pill pill-stop">400: schema / unknown website</span>
+    </p>
+    <p>Everything else — sessions, visits, channels, funnels, revenue — is derived from those rows at query time. Start with <a href="session-identity.html">Session &amp; visit identity</a> once you have read the foundations.</p>
+  </Callout>
+
+  <h2 id="guides">The guides</h2>
+  <p class="lede">New here? Read the four foundation pages in order — data model, components, flows, codebase — then pick the deep dive closest to your first ticket. Every deep dive links back into the foundations.</p>
+
+  <h3>Architecture &amp; data</h3>
+  <div class="grid cols-2">
+    <a class="dcard a-storage" href="data-model.html">
+      <div class="dhead"><h3>Data model</h3><div class="sub">26 Prisma models · 10 ClickHouse tables</div></div>
+      <div class="dbody"><p>The tables grouped into domains, the hit-to-row lifecycle, and the entity-relationship spine around <code>website_event</code>. Explains why Postgres has a <code>session</code> table and ClickHouse does not.</p></div>
+    </a>
+    <a class="dcard a-platform" href="architecture-components.html">
+      <div class="dhead"><h3>Architecture · components</h3><div class="sub">One Next.js app, four optional backends</div></div>
+      <div class="dbody"><p>The deployable, its API surfaces, data stores and integrations as a layered map. Shows how <code>runQuery</code> routes every query to Prisma or ClickHouse.</p></div>
+    </a>
+    <a class="dcard a-collect" href="architecture-flows.html">
+      <div class="dhead"><h3>Architecture · flows</h3><div class="sub">Five end-to-end traces</div></div>
+      <div class="dbody"><p>Step-by-step traces of a page view, a short-link click, a login, a dashboard query and a public share page. Each step names the file that does it.</p></div>
+    </a>
+    <a class="dcard a-platform" href="codebase.html">
+      <div class="dhead"><h3>Codebase overview</h3><div class="sub">Where the code lives</div></div>
+      <div class="dbody"><p>The directory tree, the two workspace packages, the build pipeline that bakes the tracker, and the commands you will run daily. Read before your first PR.</p></div>
+    </a>
+  </div>
+
+  <h3>Deep dives</h3>
+  <div class="grid cols-2">
+    <a class="dcard a-identity" href="session-identity.html">
+      <div class="dhead"><h3>Session &amp; visit identity</h3><div class="sub">Interactive · recompute a session id</div></div>
+      <div class="dbody"><p>How <code>/api/send</code> derives deterministic session and visit ids, the 30-minute visit rule, and the cache token. Includes a widget that recomputes a real session id — and shows why the server's time zone changes it.</p></div>
+    </a>
+    <a class="dcard a-analytics" href="channel-attribution.html">
+      <div class="dhead"><h3>Channel attribution</h3><div class="sub">Interactive · which channel wins?</div></div>
+      <div class="dbody"><p>The SQL <code>CASE</code> that turns referrers and UTM tags into channels like <code>paidAds</code> and <code>organicSocial</code>. A resolver shows where the Postgres, ClickHouse and revenue copies of that rule disagree.</p></div>
+    </a>
+    <a class="dcard a-collect" href="tracker-script.html">
+      <div class="dhead"><h3>The tracker script</h3><div class="sub">src/tracker/index.ts → /script.js</div></div>
+      <div class="dbody"><p>What the browser side does: configuration attributes, SPA navigation hooks, the opt-out checks, <code>beforeSend</code>, and how it round-trips the cache token. Read before touching collection.</p></div>
+    </a>
+  </div>
+
+  <Footer>
+    <span>Hub — orientation</span>
+    <span>Source: <span class="path">README.md</span>, <span class="path">package.json</span>, <span class="path">src/app/api/send/route.ts</span></span>
+  </Footer>
+</Base>

@@ -1,0 +1,206 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+import channelLogic from '../widgets/channel-logic.js?raw';
+import channelWidget from '../widgets/channel-widget.js?raw';
+
+const caseSrc = `WITH prefix AS (
+  select case when website_event.utm_medium LIKE 'p%' OR
+      website_event.utm_medium LIKE '%ppc%' OR
+      website_event.utm_medium LIKE '%retargeting%' OR
+      website_event.utm_medium LIKE '%paid%' then 'paid' else 'organic' end prefix,
+  ...
+channels as (
+  select case
+      when referrer_domain = '' and url_query = '' then 'direct'
+      when \${toPostgresLikeClause('url_query', PAID_AD_PARAMS)} then 'paidAds'
+      when \${toPostgresLikeClause('utm_medium', ['referral', 'app', 'link'])} then 'referral'
+      when utm_medium ilike '%affiliate%' then 'affiliate'
+      when utm_medium ilike '%sms%' or utm_source ilike '%sms%' then 'sms'
+      when \${toPostgresLikeClause('referrer_domain', LLM_DOMAINS)} then 'llm'
+      when \${toPostgresLikeClause('referrer_domain', SEARCH_DOMAINS)} or utm_medium ilike '%organic%' then concat(prefix, 'Search')
+      when \${toPostgresLikeClause('referrer_domain', SOCIAL_DOMAINS)} then concat(prefix, 'Social')
+      when \${toPostgresLikeClause('referrer_domain', EMAIL_DOMAINS)} or utm_medium ilike '%mail%' then 'email'
+      when \${toPostgresLikeClause('referrer_domain', SHOPPING_DOMAINS)} or utm_medium ilike '%shop%' then concat(prefix, 'Shopping')
+      when \${toPostgresLikeClause('referrer_domain', VIDEO_DOMAINS)} or utm_medium ilike '%video%' then concat(prefix, 'Video')
+      when referrer_domain != regexp_replace(hostname, '^www.', '') and referrer_domain != '' then 'referral'
+      else '' end AS x,`;
+
+const prefixCompareSrc = `-- getChannelMetrics.ts, Postgres (case-sensitive LIKE, anchored 'p%')
+case when utm_medium LIKE 'p%' OR utm_medium LIKE '%ppc%' OR ... then 'paid' else 'organic' end
+
+-- revenue/getRevenueMetrics.ts, Postgres (case-insensitive, substring '%cp%')
+case when we.utm_medium ilike '%cp%' OR we.utm_medium ilike '%ppc%' OR ... then 'paid' else 'organic' end
+
+-- every ClickHouse copy (lowercased substring 'cp')
+case when multiSearchAny(lower(utm_medium), ['cp', 'ppc', 'retargeting', 'paid']) != 0 then 'paid' else 'organic' end`;
+
+const visitSrc = `visit_channels as (
+  select session_id, visit_id, coalesce(nullif(x, ''), 'direct') as x
+  from (
+    select x, session_id, visit_id,
+      row_number() over (
+        partition by session_id, visit_id
+        order by case when x != '' then 0 else 1 end, created_at, event_id
+      ) as row_num
+    from channels
+  ) as ranked_channels
+  where row_num = 1)
+
+select x, count(distinct session_id) y`;
+
+const widgetScript = `${channelLogic}\n${channelWidget}`;
+---
+<Base title="Channel attribution — Umami Engineering" description="How Umami turns referrers and UTM tags into channels, and where the Postgres, ClickHouse and revenue copies of that rule disagree." active="channel-attribution">
+  <style>
+    .hero .eyebrow { color: var(--d-analytics); }
+    h2 .num { color: var(--d-analytics); }
+  </style>
+  <style is:global>
+    /* Widget kit (copied page-local) + resolver cards. Global: the cards are created by script. */
+    html .widget { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--accent, var(--brand)); border-radius: var(--radius); padding: 16px 18px; margin: 20px 0; box-shadow: var(--shadow-sm); }
+    html .wtitle { display: flex; align-items: center; gap: 10px; font-weight: 750; font-size: 17px; flex-wrap: wrap; }
+    html .wbadge { background: var(--accent, var(--brand)); color: #ffffff; font-size: 11px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; padding: 2px 9px; border-radius: 999px; }
+    html[data-theme="dark"] .wbadge { color: #1d1b19; }
+    html .wsub { color: var(--ink-soft); font-size: 14.5px; margin: 4px 0 12px; }
+    html .wcontrols { display: flex; flex-wrap: wrap; gap: 12px 18px; margin: 10px 0 14px; }
+    html .wctl { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-soft); min-width: 0; flex: 1 1 200px; }
+    html .wctl.wide { flex-basis: 100%; }
+    html .wctl input[type="text"], html .wctl select { font: 13px var(--mono); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--line-strong); background: var(--surface-2); color: var(--ink); min-width: 0; width: 100%; }
+    html .wctl input[type="text"]:disabled { opacity: .6; }
+    html .wctl .nullbox { display: inline-flex; align-items: center; gap: 4px; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+    html .wout { border-top: 1px dashed var(--line-strong); padding-top: 12px; }
+    html .chgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+    @media (max-width: 980px) { html .chgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    @media (max-width: 560px) { html .chgrid { grid-template-columns: minmax(0, 1fr); } }
+    html .chcard { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; min-width: 0; }
+    html .chname { font-weight: 700; font-size: 13.5px; color: var(--ink); }
+    html .chfile { font-family: var(--mono); font-size: 11.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+    html .chval { font-family: var(--mono); font-size: 19px; font-weight: 800; color: var(--accent, var(--brand-dark)); margin: 6px 0 2px; overflow-wrap: anywhere; }
+    html .chwhy, html .chpre { font-size: 12.5px; color: var(--ink-soft); overflow-wrap: anywhere; }
+    html .chtrace { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 6px; }
+    html .tb { font-family: var(--mono); font-size: 11px; padding: 0 4px; border-radius: 4px; border: 1px solid; }
+    html .tb-t { background: #e6f5ea; color: #1d5a2f; border-color: #b9e0c3; }
+    html .tb-f { background: transparent; color: var(--ink-soft); border-color: var(--line-strong); }
+    html .tb-x { background: transparent; color: var(--ink-soft); border-color: var(--line-strong); border-style: dashed; }
+    html .tb-n { background: #fdf2dc; color: #6e4800; border-color: #f0d9a6; }
+    html[data-theme="dark"] .tb-t { background: #1c3524; color: #a6e3b8; border-color: #2d5a3a; }
+    html[data-theme="dark"] .tb-n { background: #3a2f17; color: #f1d08a; border-color: #5e4a1f; }
+    html .chnote { font-size: 13px; color: var(--ink-soft); margin-top: 8px; }
+    html .verdict { margin-top: 12px; padding: 10px 12px; border-radius: var(--radius-sm); border: 1px solid; font-size: 14.5px; }
+    html .verdict.ok { background: #e6f5ea; color: #1d5a2f; border-color: #b9e0c3; }
+    html .verdict.stop { background: #fde8e6; color: #8f2417; border-color: #f3c3bd; }
+    html[data-theme="dark"] .verdict.ok { background: #1c3524; color: #a6e3b8; border-color: #2d5a3a; }
+    html[data-theme="dark"] .verdict.stop { background: #3d211d; color: #f6b3aa; border-color: #6a3329; }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Deep-dive · Analytics</div>
+    <h1>Channel attribution</h1>
+    <p>How does a visit end up labelled <code>paidAds</code>, <code>organicSocial</code> or <code>direct</code>? Nothing is stored: a SQL <code>CASE</code> classifies every event at query time — and Umami carries six copies of that <code>CASE</code> that do not all agree.</p>
+  </section>
+
+  <Callout type="key">
+    <p><strong>A channel is computed, not stored.</strong> Changing the rule re-labels all historical data the next time a report runs — and because the rule is copied six times, a change to one copy silently splits the reports.</p>
+  </Callout>
+
+  <nav class="anchorlist">
+    <a href="#case">1 · The CASE</a>
+    <a href="#resolver">2 · Resolver</a>
+    <a href="#drift">3 · Six copies</a>
+    <a href="#null">4 · NULL ≠ ''</a>
+    <a href="#substring">5 · Substrings</a>
+    <a href="#visit">6 · Per visit</a>
+  </nav>
+
+  <h2 id="case"><span class="num">1</span>Twelve WHEN branches, first true one wins</h2>
+  <p class="lede">The inputs are five <code>website_event</code> columns written by <a href="architecture-flows.html#pageview"><code>/api/send</code></a>: <code>referrer_domain</code>, <code>url_query</code>, <code>utm_medium</code>, <code>utm_source</code>, <code>hostname</code>.</p>
+  <Code code={caseSrc} lang="sql" theme="github-light" />
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>#</th><th>Channel</th><th>Fires when</th><th>List (<span class="path">src/lib/constants.ts</span>)</th></tr></thead>
+      <tbody>
+        <tr><td>1</td><td><code>direct</code></td><td>no referrer domain and no query string</td><td>—</td></tr>
+        <tr><td>2</td><td><code>paidAds</code></td><td><code>url_query</code> contains a click id or paid UTM</td><td><code>PAID_AD_PARAMS</code> (17, e.g. <code>gclid=</code>, <code>utm_source=google</code>)</td></tr>
+        <tr><td>3</td><td><code>referral</code></td><td><code>utm_medium</code> contains <code>referral</code>, <code>app</code> or <code>link</code></td><td>inline</td></tr>
+        <tr><td>4–5</td><td><code>affiliate</code>, <code>sms</code></td><td>medium (or source, for sms) contains the word</td><td>inline</td></tr>
+        <tr><td>6</td><td><code>llm</code></td><td>referrer is an AI assistant</td><td><code>LLM_DOMAINS</code> (6)</td></tr>
+        <tr><td>7–8</td><td><code>…Search</code>, <code>…Social</code></td><td>search or social referrer (search also: medium contains <code>organic</code>)</td><td><code>SEARCH_DOMAINS</code> (8), <code>SOCIAL_DOMAINS</code> (15)</td></tr>
+        <tr><td>9</td><td><code>email</code></td><td>webmail referrer or medium contains <code>mail</code></td><td><code>EMAIL_DOMAINS</code> (6)</td></tr>
+        <tr><td>10–11</td><td><code>…Shopping</code>, <code>…Video</code></td><td>shop/video referrer or medium word</td><td><code>SHOPPING_DOMAINS</code> (9), <code>VIDEO_DOMAINS</code> (2)</td></tr>
+        <tr><td>12</td><td><code>referral</code></td><td>any other non-empty referrer that is not this host</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Search, Social, Shopping and Video get a <code>paid</code> or <code>organic</code> prefix from the medium; the others do not. Custom events and performance beacons are excluded up front (<code>event_type NOT IN (2, 5)</code>, see <a href="data-model.html#lifecycle">event types</a>).</p>
+
+  <h2 id="resolver"><span class="num">2</span>Run one row through all four live copies of the rule</h2>
+  <p class="lede">The default row is test persona <code>alice</code>'s landing page view, exactly as <code>/api/send</code> stores it; <span class="path">tests/api/revenue.spec.ts</span> asserts her revenue lands in <code>paidAds</code> on both Postgres and ClickHouse.</p>
+  <div class="widget a-analytics" id="ch-widget">
+    <div class="wtitle"><span class="wbadge">Interactive</span><span>Which channel does this visit land in — and does every report agree?</span></div>
+    <p class="wsub">Pick a preset or edit the stored column values (tick NULL for a missing Postgres value). Each card runs a JavaScript port of that copy of the <code>CASE</code>, including SQL's NULL logic; the trace shows each WHEN as ✓ true, ✗ false, ? NULL, or – not reached (CASE stops at the first true branch).</p>
+    <div class="wcontrols">
+      <label class="wctl wide">preset <select id="ch-preset"><option value="alice">alice</option></select></label>
+      <label class="wctl">referrer_domain <input type="text" id="ch-referrer_domain" spellcheck="false" /><span class="nullbox"><input type="checkbox" id="ch-referrer_domain-null" /> NULL</span></label>
+      <label class="wctl wide">url_query <input type="text" id="ch-url_query" spellcheck="false" /><span class="nullbox"><input type="checkbox" id="ch-url_query-null" /> NULL</span></label>
+      <label class="wctl">utm_medium <input type="text" id="ch-utm_medium" spellcheck="false" /><span class="nullbox"><input type="checkbox" id="ch-utm_medium-null" /> NULL</span></label>
+      <label class="wctl">utm_source <input type="text" id="ch-utm_source" spellcheck="false" /><span class="nullbox"><input type="checkbox" id="ch-utm_source-null" /> NULL</span></label>
+      <label class="wctl">hostname <input type="text" id="ch-hostname" spellcheck="false" /><span class="nullbox"><input type="checkbox" id="ch-hostname-null" /> NULL</span></label>
+    </div>
+    <div class="wout" id="ch-out" aria-live="polite"></div>
+  </div>
+  <p class="small muted">The ClickHouse cards replace NULL with <code>''</code>, as ClickHouse's non-<code>Nullable</code> <code>String</code> columns do. The same port is executed by a standalone Node check (<code>vm</code>-loaded from this site's <span class="path">src/widgets/channel-logic.js</span>), which reproduces the three persona outcomes asserted in <span class="path">tests/api/revenue.spec.ts</span>: alice → <code>paidAds</code>, bob → <code>organicSocial</code>, carol → <code>direct</code>.</p>
+
+  <h2 id="drift"><span class="num">3</span>Six copies of the rule exist, and the Postgres channel report is the odd one out</h2>
+  <p class="lede">Three query files × two dialects. Their WHEN lists match; their <code>paid</code>/<code>organic</code> prefix and their fallback do not.</p>
+  <Code code={prefixCompareSrc} lang="sql" theme="github-light" />
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Copy</th><th>Prefix "paid" test</th><th>NULLs</th><th>Nothing matched →</th></tr></thead>
+      <tbody>
+        <tr><td><span class="path">getChannelMetrics.ts</span> + <span class="path">getChannelExpandedMetrics.ts</span>, Postgres</td><td><code>LIKE 'p%'</code> — <em>starts with</em> p, case-sensitive</td><td>kept as NULL</td><td><code>direct</code></td></tr>
+        <tr><td>same files, ClickHouse</td><td>contains <code>cp</code>, case-insensitive</td><td>impossible (<code>''</code>)</td><td><code>direct</code></td></tr>
+        <tr><td><span class="path">revenue/getRevenueMetrics.ts</span>, Postgres</td><td><code>ilike '%cp%'</code></td><td><code>coalesce(…, '')</code> on referrer and query</td><td><code>Unknown</code></td></tr>
+        <tr><td>same file, ClickHouse</td><td>contains <code>cp</code></td><td>impossible</td><td><code>Unknown</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <Callout type="warn">
+    <p><strong>Correction: "paid search" means different things on the two backends.</strong> The seed script's own paid campaign — <code>google / cpc / brand_search</code> from <span class="path">scripts/seed/distributions/referrers.ts</span> — is <code>organicSearch</code> in the Postgres channels report (<code>'cpc'</code> does not start with <code>p</code>) but <code>paidSearch</code> in the revenue report and on ClickHouse. Conversely <code>utm_medium=partner</code> is <code>paid</code> on Postgres only. Pick the <em>seed: google / cpc</em> and <em>utm_medium=partner</em> presets above. Neither case is covered by a test: <span class="path">getChannelMetrics.test.ts</span> asserts only on SQL text.</p>
+  </Callout>
+
+  <h2 id="null"><span class="num">4</span>On Postgres, a missing referrer is NULL, so the "direct" branch never fires for it</h2>
+  <p class="lede"><code>/api/send</code> leaves <code>referrerDomain</code> undefined when there is no referrer (or it is a self-referral), so Prisma stores NULL — while <code>url_query</code> is <code>''</code>.</p>
+  <p><code>NULL = ''</code> is NULL, not true, so WHEN #1 is skipped and every later test against <code>referrer_domain</code> is also NULL. Persona <code>carol</code> still ends up <code>direct</code>, but by the fallback <code>coalesce(nullif(x, ''), 'direct')</code>, not by branch #1 — the resolver's trace shows the <code>?</code> marks. The difference becomes visible when the row has UTM columns but an empty or NULL query string, which the tracker never produces but <span class="path">scripts/seed</span> does (it writes <code>urlQuery: null</code> for every event): the <em>seed: newsletter / email</em> preset is <code>email</code> in the Postgres channels report and <code>direct</code> everywhere else.</p>
+  <Callout type="note">
+    <p>Because the seed script puts UTM values in columns but never in <code>url_query</code>, branch #2 (<code>paidAds</code>) can never fire on seeded Postgres data. Seeded dashboards under-report <code>paidAds</code> compared with tracker-collected data; do not use them to sanity-check channel changes. Use the API suite's personas instead (<a href="codebase.html#tests">codebase · tests</a>).</p>
+  </Callout>
+
+  <h2 id="substring"><span class="num">5</span>Domain lists match substrings, so <code>t.co</code> claims more than Twitter</h2>
+  <p class="lede">Every list entry becomes <code>ilike '%entry%'</code> (Postgres) or <code>multiSearchAny(lower(col), […])</code> (ClickHouse) — a substring test, not a domain match.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Referrer</th><th>Matches</th><th>Result</th></tr></thead>
+      <tbody>
+        <tr><td><code>producthunt.com</code> (a seed "referral" site)</td><td><code>t.co</code> in <code>SOCIAL_DOMAINS</code></td><td><code>organicSocial</code>, not <code>referral</code></td></tr>
+        <tr><td><code>walmart.com</code>, <code>target.com</code></td><td><code>t.co</code> (Social, branch 8) before Shopping (branch 10)</td><td><code>organicSocial</code></td></tr>
+        <tr><td><code>dropbox.com</code></td><td><code>x.com</code></td><td><code>organicSocial</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Type any of these into the resolver's <code>referrer_domain</code> to confirm. The fix is a list that matches on label boundaries; until then, add new entries with a leading or trailing dot where possible (<code>linkedin.</code>, <code>reddit.</code> already do).</p>
+
+  <h2 id="visit"><span class="num">6</span>A visit takes the first non-empty channel of its events</h2>
+  <p class="lede">The channels report counts sessions per channel after collapsing each visit to one label.</p>
+  <Code code={visitSrc} lang="sql" theme="github-light" />
+  <p>Only the landing page view normally carries a referrer, so the visit inherits its channel; later page views (internal referrer → NULL) classify as <code>''</code> and sort last. ClickHouse does the same with <code>argMin(x, tuple(if(x != '', 0, 1), created_at, event_id))</code>. The revenue report instead takes the session's <em>earliest</em> event (<code>min(created_at)</code>) and classifies that one row. Since <code>visit_id</code> is derived per hour (<a href="session-identity.html#visit">session identity</a>), a long browsing session can contain several visits, each attributed separately.</p>
+
+  <Footer>
+    <span>Channel attribution — deep-dive</span>
+    <span>Source: <span class="path">src/queries/sql/getChannelMetrics.ts</span>, <span class="path">src/queries/sql/getChannelExpandedMetrics.ts</span>, <span class="path">src/queries/sql/revenue/getRevenueMetrics.ts</span>, <span class="path">src/lib/constants.ts</span>, <span class="path">tests/api/revenue.spec.ts</span></span>
+  </Footer>
+
+  <script is:inline set:html={widgetScript}></script>
+</Base>

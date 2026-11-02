@@ -1,0 +1,127 @@
+---
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+import Tree from '../components/Tree.astro';
+
+const TREE = `
+umami/
+├── prisma/
+│   ├── schema.prisma            # 26 models — the Postgres source of truth
+│   └── migrations/              # 01_init … 26_add_api_key
+├── db/clickhouse/
+│   ├── schema.sql               # 10 tables + 4 materialized views
+│   └── migrations/              # 14 ClickHouse migrations
+├── src/
+│   ├── app/                     # Next.js App Router: pages AND route handlers
+│   │   ├── (main)/              # signed-in UI: websites, boards, links, pixels, settings, admin
+│   │   ├── (collect)/           # q/[slug] short links, p/[slug] pixels
+│   │   ├── (compat)/            # legacy report endpoints
+│   │   ├── api/                 # 135 route.ts files — send, websites, auth, teams…
+│   │   ├── mcp/                 # MCP endpoint (MCP_ENABLED=1)
+│   │   └── share/[slug]/        # public share pages
+│   ├── tracker/index.ts         # browser tracker → public/script.js
+│   ├── recorder/index.js        # session-replay recorder → public/recorder.js
+│   ├── lib/                     # crypto, auth, db switch, detect, clickhouse, kafka, redis
+│   ├── permissions/             # canViewWebsite & friends
+│   ├── queries/
+│   │   ├── prisma/              # 15 CRUD modules
+│   │   └── sql/                 # 81 analytics modules (Postgres + ClickHouse bodies)
+│   ├── components/              # React UI, hooks (TanStack Query), charts
+│   └── store/                   # zustand stores
+├── packages/
+│   ├── api-client/              # @umami/api-client, generated from OpenAPI
+│   └── mcp/                     # @umami/mcp, standalone MCP server
+├── scripts/                     # build-geo, check-db, seed-data, OpenAPI generators
+├── tests/
+│   ├── api/                     # Playwright API suite, runs on Postgres AND ClickHouse
+│   └── e2e/                     # Playwright browser suite
+└── next.config.ts               # rewrites: tracker name, collect endpoint, API_URL
+`;
+---
+<Base title="Codebase overview — Umami Engineering" description="Where Umami's code lives, how it builds, and the commands you will run." active="codebase">
+  <style>
+    .hero .eyebrow { color: var(--d-platform); }
+    h2 .num { color: var(--d-platform); }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Foundation · Platform</div>
+    <h1>Codebase overview</h1>
+    <p>Where does the code live, what does the build actually do, and which commands will you run in your first week? Umami is a single pnpm workspace: one Next.js app at the root plus two publishable packages.</p>
+  </section>
+
+  <Callout type="key">
+    <p><strong>Follow the three trees:</strong> a <span class="path">src/app/api/…/route.ts</span> handler validates and authorises, a <span class="path">src/queries/</span> module talks to the database, and <span class="path">src/lib/</span> holds everything in between. Almost every change touches exactly those three places.</p>
+  </Callout>
+
+  <nav class="anchorlist">
+    <a href="#tree">1 · Directory tree</a>
+    <a href="#stack">2 · Stack</a>
+    <a href="#build">3 · Build pipeline</a>
+    <a href="#commands">4 · Commands</a>
+    <a href="#tests">5 · Tests &amp; CI</a>
+  </nav>
+
+  <h2 id="tree"><span class="num">1</span>Routes, queries and libraries are three sibling trees under src/</h2>
+  <p class="lede">The App Router's route groups — <code>(main)</code>, <code>(collect)</code>, <code>(compat)</code> — organise files without changing URLs.</p>
+  <div class="a-platform"><Tree tree={TREE} /></div>
+  <p>Rule of thumb: an endpoint is a thin <code>route.ts</code> that calls <code>parseRequest</code>, a <span class="path">src/permissions/</span> check, and one function from <span class="path">src/queries/</span>. Business logic that is not a query lives in <span class="path">src/lib/</span>.</p>
+
+  <h2 id="stack"><span class="num">2</span>The stack is current-generation everything</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Concern</th><th>Choice (from <span class="path">package.json</span>)</th></tr></thead>
+      <tbody>
+        <tr><td>Framework</td><td><code>next</code> 16.4.2 (App Router, Turbopack in dev), <code>react</code> ^19.3.1</td></tr>
+        <tr><td>UI kit &amp; state</td><td><code>@umami/react-zen</code>, <code>@tanstack/react-query</code> ^5, <code>zustand</code> ^5</td></tr>
+        <tr><td>Validation</td><td><code>zod</code> ^4 — every route schema</td></tr>
+        <tr><td>Databases</td><td><code>prisma</code> / <code>@prisma/client</code> ^7.10 with <code>@prisma/adapter-pg</code>; <code>@clickhouse/client</code>; <code>kafkajs</code>; <code>redis</code> ^5</td></tr>
+        <tr><td>Collection helpers</td><td><code>isbot</code>, <code>detect-browser</code>, <code>ua-parser-js</code>, <code>maxmind</code>, <code>uuid</code> ^14</td></tr>
+        <tr><td>Tooling</td><td>pnpm 12.3.4 (<code>engines</code>), TypeScript ^6, Biome (lint + format), Vitest ^4, Playwright</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <Callout type="warn">
+    <p><strong>Correction: the Node version in the README is stale.</strong> <span class="path">README.md</span> asks for "Node.js version 18.18+", but CI runs Node 22 (<span class="path">.github/workflows/ci.yml</span>, "Use Node.js 22") and the Docker image builds on <code>node:22.23.4-alpine</code> (<span class="path">Dockerfile</span>). Develop on 22.</p>
+  </Callout>
+
+  <h2 id="build"><span class="num">3</span><code>pnpm build</code> is eight steps, and two of them write files the app serves</h2>
+  <p class="lede">The <code>build</code> script is an <code>npm-run-all</code> chain; knowing the order explains most "works in dev, breaks in build" surprises.</p>
+  <div class="steps a-platform">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">check:env</div><div class="d">Fails fast on missing required environment.</div><div class="meta">scripts/check-env.js</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">build:db</div><div class="d"><code>prisma generate</code> into <span class="path">src/generated/prisma</span>, then a bundled client.</div><div class="meta">scripts/build-prisma-client.js</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">check:db</div><div class="d">Connects and applies migrations — this is where a fresh install gets its tables and the <code>admin</code> user inserted by <span class="path">prisma/migrations/01_init</span>.</div><div class="meta">scripts/check-db.js</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">build:tracker</div><div class="d">Type-checks and rolls up <span class="path">src/tracker/index.ts</span> to <span class="path">public/script.js</span>, baking in <code>COLLECT_API_HOST</code>/<code>COLLECT_API_ENDPOINT</code> at build time.</div><div class="meta">rollup.tracker.config.js</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">build:recorder</div><div class="d"><span class="path">src/recorder/index.js</span> → <span class="path">public/recorder.js</span>.</div><div class="meta">rollup.recorder.config.js</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">build:geo</div><div class="d">Fetches the GeoLite2 City database into <span class="path">geo/</span>.</div><div class="meta">scripts/build-geo.js</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">build:openapi · build:packages</div><div class="d">Generates the OpenAPI document and the typed API client, then builds <span class="path">packages/*</span>.</div><div class="meta">scripts/generate-openapi.ts · generate-api-client.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">build:app</div><div class="d"><code>next build --turbo</code>.</div><div class="meta">next.config.ts</div></div></div>
+  </div>
+  <Callout type="note"><p>Because the collect endpoint is baked into <span class="path">public/script.js</span> at build time, changing <code>COLLECT_API_ENDPOINT</code> needs a rebuild of the tracker, not just a restart. <code>next.config.ts</code> separately rewrites that path to <code>/api/send</code>.</p></Callout>
+
+  <h2 id="commands"><span class="num">4</span>Six commands cover a normal day</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+      <tbody>
+        <tr><td><code>pnpm dev</code></td><td><code>dotenv next dev --turbo</code> on port 3000</td></tr>
+        <tr><td><code>pnpm db:seed</code></td><td>Seeds demo websites (<code>blog.example.com</code>, <code>app.example.com</code>) via Prisma — Postgres only (<span class="path">scripts/seed/</span>)</td></tr>
+        <tr><td><code>pnpm test</code></td><td>Vitest unit tests (<code>src/**/*.test.ts(x)</code>, jsdom)</td></tr>
+        <tr><td><code>pnpm test:api</code> / <code>test:api:clickhouse</code></td><td>Playwright API suite against Docker Postgres or ClickHouse (<span class="path">scripts/test-api.ts</span>)</td></tr>
+        <tr><td><code>pnpm lint</code> / <code>pnpm check</code></td><td>Biome lint; Biome check with <code>--write</code></td></tr>
+        <tr><td><code>pnpm build</code></td><td>The full chain above</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p>Contributions target the <code>dev</code> branch, not <code>master</code> (<span class="path">CONTRIBUTING.md</span>).</p>
+
+  <h2 id="tests"><span class="num">5</span>The API suite is the only thing that checks both backends agree</h2>
+  <p class="lede">122 <code>*.test.ts(x)</code> files exist under <span class="path">src/</span>, <span class="path">tests/</span> and <span class="path">packages/</span>, but most unit tests mock the database and assert on SQL text.</p>
+  <p>The Playwright suite in <span class="path">tests/api/</span> ingests a fixed cast of personas (<code>alice</code> … <code>frank</code> in <span class="path">tests/api/seed/dataset.ts</span>) through the real <code>/api/send</code> and asserts on real query results, on whichever backend <span class="path">scripts/test-api.ts</span> started. That makes it the strongest evidence for any "the dashboard shows X" claim — <a href="channel-attribution.html">Channel attribution</a> seeds its widget from it. CI (<span class="path">.github/workflows/ci.yml</span>) runs OpenAPI checks, <code>pnpm test</code>, package tests and a full build.</p>
+
+  <Footer>
+    <span>Codebase overview — foundation</span>
+    <span>Source: <span class="path">package.json</span>, <span class="path">README.md</span>, <span class="path">Dockerfile</span>, <span class="path">.github/workflows/ci.yml</span>, <span class="path">rollup.tracker.config.js</span>, <span class="path">next.config.ts</span></span>
+  </Footer>
+</Base>

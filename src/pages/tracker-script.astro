@@ -1,0 +1,151 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+
+const embedSrc = `<script defer src="https://analytics.example.com/script.js"
+        data-website-id="e676c9b4-11e4-4ef1-a4d7-87001773e9f2"
+        data-domains="example.com,www.example.com"
+        data-do-not-track="true"
+        data-performance="true"></script>`;
+
+const disabledSrc = `const trackingDisabled = () =>
+  disabled ||
+  !website ||
+  localStorage?.getItem('umami.disabled') ||
+  (domain && !domains.includes(hostname)) ||
+  (dnt && hasDoNotTrack());`;
+
+const sendSrc = `const res = await fetch(endpoint, {
+  keepalive: true,
+  method: 'POST',
+  body: JSON.stringify({ type, payload }),
+  headers: {
+    'Content-Type': 'application/json',
+    'x-umami-website-id': website as string,
+    'x-umami-hostname': hostname,
+    ...(typeof cache !== 'undefined' && { 'x-umami-cache': cache }),
+  },
+  credentials,
+});
+
+const data = (await res.json()) as { cache?: string; disabled?: boolean } | null;
+if (data) {
+  disabled = !!data.disabled;
+  cache = data.cache;
+}`;
+
+const pushSrc = `const handlePush = (_state: unknown, _title: string, url?: string | URL | null) => {
+  if (!url) return;
+
+  if (typeof flushPerformance === 'function') {
+    flushPerformance();
+  }
+
+  currentRef = currentUrl;
+  currentUrl = normalize(url);
+
+  if (currentUrl !== currentRef && autoPageview) {
+    setTimeout(track, delayDuration); // 300 ms
+  }
+};`;
+---
+<Base title="The tracker script — Umami Engineering" description="What Umami's browser tracker does: configuration, opt-outs, SPA navigation, the cache token and click tracking." active="tracker-script">
+  <style>
+    .hero .eyebrow { color: var(--d-collect); }
+    h2 .num { color: var(--d-collect); }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Deep-dive · Collect</div>
+    <h1>The tracker script</h1>
+    <p>What does the browser actually send, when, and what makes it stay silent? <span class="path">src/tracker/index.ts</span> is a single IIFE, built to <span class="path">public/script.js</span>, that reads its configuration from its own <code>&lt;script&gt;</code> tag.</p>
+  </section>
+
+  <nav class="anchorlist">
+    <a href="#config">1 · Configuration</a>
+    <a href="#optouts">2 · Opt-outs</a>
+    <a href="#spa">3 · SPA navigation</a>
+    <a href="#cache">4 · Cache token</a>
+    <a href="#clicks">5 · Click events</a>
+    <a href="#api">6 · JS API</a>
+  </nav>
+
+  <h2 id="config"><span class="num">1</span>Every option is a data- attribute on the script tag itself</h2>
+  <p class="lede">The tracker finds itself through <code>document.currentScript</code> — if that is null (e.g. the code was injected and run later), it does nothing at all.</p>
+  <Code code={embedSrc} lang="html" theme="github-light" />
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Attribute</th><th>Default</th><th>Effect</th></tr></thead>
+      <tbody>
+        <tr><td><code>data-website-id</code></td><td>—</td><td>Required; without it nothing is sent</td></tr>
+        <tr><td><code>data-host-url</code></td><td>build-time <code>COLLECT_API_HOST</code>, else the script's own directory</td><td>Where to POST</td></tr>
+        <tr><td><code>data-auto-track</code></td><td>on</td><td><code>"false"</code> disables page views, SPA hooks and click tracking entirely</td></tr>
+        <tr><td><code>data-auto-pageview</code></td><td>on</td><td><code>"false"</code> keeps click tracking but skips automatic page views</td></tr>
+        <tr><td><code>data-domains</code></td><td>any</td><td>Comma list; other hostnames are ignored</td></tr>
+        <tr><td><code>data-do-not-track</code></td><td>off</td><td><code>"true"</code> makes the browser's DNT setting count</td></tr>
+        <tr><td><code>data-exclude-search</code> / <code>data-exclude-hash</code></td><td>off</td><td>Strip query or fragment before sending — which also hides UTM tags from <a href="channel-attribution.html#case">channel attribution</a></td></tr>
+        <tr><td><code>data-before-send</code></td><td>—</td><td>Name of a global function that may rewrite or drop each payload</td></tr>
+        <tr><td><code>data-tag</code>, <code>data-distinct-id</code></td><td>—</td><td>Attach a tag to every event; identify the visitor immediately</td></tr>
+        <tr><td><code>data-performance</code></td><td>off</td><td><code>"true"</code> sends Web Vitals as <code>type: 'performance'</code></td></tr>
+        <tr><td><code>data-fetch-credentials</code></td><td><code>omit</code></td><td>Passed straight to <code>fetch</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2 id="optouts"><span class="num">2</span>Five checks can silence the tracker before every send</h2>
+  <p class="lede">Do-Not-Track is opt-in for the site owner: the browser's DNT flag is ignored unless the tag says <code>data-do-not-track="true"</code>.</p>
+  <Code code={disabledSrc} lang="ts" theme="github-light" />
+  <Callout type="tip">
+    <p>To exclude your own visits, run <code>localStorage.setItem('umami.disabled', '1')</code> on the tracked site. Any non-empty value works; the check is truthiness.</p>
+  </Callout>
+  <Callout type="note">
+    <p>The tracker honours a <code>disabled</code> flag in the collection response, but <span class="path">src/app/api/send/route.ts</span> in this repo never returns one — it answers <code>&#123; cache, sessionId, visitId &#125;</code> (or <code>&#123; beep: 'boop' &#125;</code> for bots). Treat <code>disabled</code> as a hook for other collectors, not as something this server does.</p>
+  </Callout>
+
+  <h2 id="spa"><span class="num">3</span>Single-page apps are tracked by wrapping history.pushState and replaceState</h2>
+  <p class="lede">After the original method runs, the hook makes the previous URL the new referrer and schedules a page view 300 ms later.</p>
+  <Code code={pushSrc} lang="ts" theme="github-light" />
+  <p>Two consequences: <code>replaceState</code> calls that change the URL count as page views too, and the 300 ms delay lets frameworks update <code>document.title</code> first. Back/forward navigation (<code>popstate</code>) is not hooked. Same-origin referrers are reduced to a path by <code>stripOrigin</code>, and the server then drops the referrer domain for self-referrals (<a href="architecture-flows.html#pageview">flow step 7</a>), which is why internal page views carry no referrer domain.</p>
+
+  <h2 id="cache"><span class="num">4</span>The tracker round-trips a server-signed token so repeat hits skip work</h2>
+  <p class="lede">The response's <code>cache</code> JWT is stored in a closure variable and replayed as <code>x-umami-cache</code>; it lives as long as the page does.</p>
+  <Code code={sendSrc} lang="ts" theme="github-light" />
+  <div class="steps a-collect">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">First hit on a page load</div><div class="d">No header. The server looks the website up and, on Postgres, creates the session row.</div><div class="meta">fetchWebsite · createSession</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Later hits</div><div class="d">The token's <code>websiteId</code> skips the website lookup; its <code>visitId</code>/<code>iat</code> pin the visit for up to 30 minutes (<a href="session-identity.html#visit">details</a>).</div><div class="meta">parseToken(cacheHeader, secret())</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">identify()</div><div class="d">Sets the token to <code>''</code> before sending, which the server treats as no token — the identified hit gets a freshly derived session (the distinct id is in the hash) and visit.</div><div class="meta">cache = ''</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Full page reload</div><div class="d">The closure is gone, so the first hit is uncached again — but because ids are recomputed, the session and (within the hour) the visit come out the same.</div><div class="meta">no storage used for the token</div></div></div>
+  </div>
+  <Callout type="key">
+    <p><strong>The token is an optimisation, not identity.</strong> It is never written to <code>localStorage</code> or a cookie; losing it costs a database lookup, not a session. Identity comes from the hash in <a href="session-identity.html">Session &amp; visit identity</a>.</p>
+  </Callout>
+
+  <h2 id="clicks"><span class="num">5</span>Tracked links wait for the event before navigating</h2>
+  <p class="lede">A capturing click listener looks for the nearest ancestor with <code>data-umami-event</code>; every <code>data-umami-event-*</code> attribute becomes event data.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Clicked element</th><th>Behaviour</th></tr></thead>
+      <tbody>
+        <tr><td>Non-link element</td><td><code>track(name, data)</code>, no interference with the click</td></tr>
+        <tr><td><code>&lt;a href&gt;</code>, same tab</td><td><code>preventDefault()</code>, await the send, then set <code>location.href</code> (or <code>top.location</code> for <code>target="_top"</code>)</td></tr>
+        <tr><td><code>&lt;a&gt;</code> with <code>target="_blank"</code>, Ctrl/Shift/Meta, or middle button</td><td>Tracked without blocking the browser's own navigation</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <Callout type="warn"><p>Because same-tab links wait for <code>send()</code>, a slow or unreachable collector delays navigation for every tracked link until the request settles. <code>fetch</code> has no timeout here.</p></Callout>
+
+  <h2 id="api"><span class="num">6</span>The JS API is three functions on window.umami</h2>
+  <dl class="kgrid">
+    <dt><code>umami.track()</code></dt><dd>No args: a page view of the current URL. A string: a custom event (<code>event_type = 2</code>) with optional data. An object: sent as the whole payload. A function: receives the default payload and returns one.</dd>
+    <dt><code>umami.identify()</code></dt><dd><code>identify('user-123', data)</code> or <code>identify(&#123; id, …data &#125;)</code>; sends <code>type: 'identify'</code> and remembers the id for later payloads.</dd>
+    <dt><code>umami.getSession()</code></dt><dd>Returns <code>&#123; cache, website &#125;</code> — handy when debugging the token flow.</dd>
+  </dl>
+  <p>Unit tests for all of this live next to the source in <span class="path">src/tracker/index.test.ts</span>.</p>
+
+  <Footer>
+    <span>The tracker script — deep-dive</span>
+    <span>Source: <span class="path">src/tracker/index.ts</span>, <span class="path">rollup.tracker.config.js</span>, <span class="path">src/app/api/send/route.ts</span></span>
+  </Footer>
+</Base>

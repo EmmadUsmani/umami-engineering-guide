@@ -1,0 +1,164 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+
+const runQuerySrc = `export async function runQuery(queries: any) {
+  if (process.env.CLICKHOUSE_URL) {
+    if (queries[KAFKA]) {
+      return queries[KAFKA]();
+    }
+
+    return queries[CLICKHOUSE]();
+  }
+
+  const db = getDatabaseType();
+
+  if (db === POSTGRESQL) {
+    return queries[PRISMA]();
+  }
+}`;
+
+const queryShapeSrc = `export async function getChannelMetrics(...args: [websiteId: string, filters?: QueryFilters]) {
+  return runQuery({
+    [PRISMA]: () => relationalQuery(...args),
+    [CLICKHOUSE]: () => clickhouseQuery(...args),
+  });
+}`;
+---
+<Base title="Architecture · components — Umami Engineering" description="What Umami is made of: one Next.js deployable, its API surfaces, and four data stores." active="architecture-components">
+  <style>
+    .hero .eyebrow { color: var(--d-platform); }
+    h2 .num { color: var(--d-platform); }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Foundation · Platform</div>
+    <h1>Architecture · components</h1>
+    <p>What is Umami made of? One Next.js application — UI, REST API, collection endpoint and MCP server in a single deployable — in front of PostgreSQL, with ClickHouse, Kafka and Redis as opt-in add-ons switched on by environment variables.</p>
+  </section>
+
+  <Callout type="key">
+    <p><strong>There is one deployable.</strong> Collection, dashboard API, UI and MCP all run in the same Next.js process; the only architectural switch is <code>runQuery</code> choosing Postgres or ClickHouse per call, based on <code>CLICKHOUSE_URL</code>.</p>
+  </Callout>
+
+  <nav class="anchorlist">
+    <a href="#map">1 · Layered map</a>
+    <a href="#surfaces">2 · API surfaces</a>
+    <a href="#backends">3 · Backend switch</a>
+    <a href="#stores">4 · Data stores</a>
+    <a href="#external">5 · External inputs</a>
+  </nav>
+
+  <h2 id="map"><span class="num">1</span>Everything runs in one Next.js process; the layers are directories, not services</h2>
+  <p class="lede">Read top to bottom: who calls in, which route handles it, which library checks it, which query module runs, which store answers.</p>
+  <div class="bands">
+    <div class="band a-collect">
+      <div class="label">Clients<small>outside the server</small></div>
+      <div class="nodes">
+        <div class="node">Tracker<span class="sub">/script.js</span></div>
+        <div class="node">Recorder<span class="sub">/recorder.js</span></div>
+        <div class="node">Dashboard UI<span class="sub">React 19 · @umami/react-zen</span></div>
+        <div class="node">API clients<span class="sub">Bearer token · API key</span></div>
+        <div class="node">MCP clients<span class="sub">/mcp (MCP_ENABLED=1)</span></div>
+      </div>
+    </div>
+    <div class="flowarrow">HTTP</div>
+    <div class="band a-platform">
+      <div class="label">Routes<small>src/app/</small></div>
+      <div class="nodes">
+        <div class="node lg">Collect<span class="sub">api/send · api/batch · api/record · (collect)/q · (collect)/p</span></div>
+        <div class="node lg">App API<span class="sub">api/websites/[websiteId]/… · api/auth · api/teams · api/users · api/me · api/admin</span></div>
+        <div class="node">Compat API<span class="sub">(compat)/compat/api</span></div>
+        <div class="node">Pages<span class="sub">(main) · share/[slug] · login</span></div>
+      </div>
+    </div>
+    <div class="flowarrow">parseRequest → checkAuth → permissions</div>
+    <div class="band a-tenancy">
+      <div class="label">Libraries<small>src/lib/ · src/permissions/</small></div>
+      <div class="nodes">
+        <div class="node">request.ts<span class="sub">zod + auth</span></div>
+        <div class="node">auth.ts · jwt.ts<span class="sub">tokens, API keys, shares</span></div>
+        <div class="node">permissions/<span class="sub">canViewWebsite…</span></div>
+        <div class="node">detect.ts<span class="sub">UA, geo, IGNORE_IP</span></div>
+        <div class="node">crypto.ts<span class="sub">hash, uuid, salt</span></div>
+      </div>
+    </div>
+    <div class="flowarrow">runQuery(&#123; prisma, clickhouse &#125;)</div>
+    <div class="band a-analytics">
+      <div class="label">Queries<small>src/queries/</small></div>
+      <div class="nodes">
+        <div class="node lg">prisma/ — 15 modules<span class="sub">CRUD: user, team, website, link, report…</span></div>
+        <div class="node lg">sql/ — 81 modules<span class="sub">analytics, each with a Postgres and a ClickHouse body</span></div>
+      </div>
+    </div>
+    <div class="flowarrow">env-selected</div>
+    <div class="band a-storage">
+      <div class="label">Stores</div>
+      <div class="nodes">
+        <div class="node">PostgreSQL<span class="sub">DATABASE_URL · required</span></div>
+        <div class="node">ClickHouse<span class="sub">CLICKHOUSE_URL · optional</span></div>
+        <div class="node">Kafka<span class="sub">KAFKA_URL + KAFKA_BROKER</span></div>
+        <div class="node">Redis<span class="sub">REDIS_URL · cache + auth keys</span></div>
+      </div>
+    </div>
+  </div>
+  <p class="small muted">Module counts: <code>find src/queries/sql -name '*.ts' ! -name '*.test.ts'</code> → 81; <code>src/queries/prisma/*.ts</code> minus tests → 15.</p>
+
+  <h2 id="surfaces"><span class="num">2</span>Four doors into the server, and only the collect door skips auth</h2>
+  <p class="lede">Every handler calls <code>parseRequest</code> (<span class="path">src/lib/request.ts</span>), which validates with zod and then runs <code>checkAuth</code> — unless the route passes <code>&#123; skipAuth: true &#125;</code>, as <code>/api/send</code> does.</p>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Surface</th><th>Where</th><th>Auth</th><th>Size</th></tr></thead>
+      <tbody>
+        <tr><td>Collection</td><td><span class="path">src/app/api/send</span>, <span class="path">batch</span>, <span class="path">record</span>; <span class="path">src/app/(collect)/q/[slug]</span>, <span class="path">p/[slug]</span></td><td>None; bot + IP filters instead</td><td>5 routes</td></tr>
+        <tr><td>App API</td><td><span class="path">src/app/api/**/route.ts</span></td><td>Bearer JWT, Redis auth key, API key, or share token</td><td>135 <code>route.ts</code> files under <span class="path">src/app/api</span> (incl. collection)</td></tr>
+        <tr><td>Compat API</td><td><span class="path">src/app/(compat)/compat/api</span></td><td>Same as App API</td><td>13 route files; see <span class="path">docs/report-api-migration.md</span></td></tr>
+        <tr><td>MCP</td><td><span class="path">src/app/mcp/route.ts</span></td><td>API key; disabled unless <code>MCP_ENABLED=1</code></td><td>1 route</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p><code>checkAuth</code> (<span class="path">src/lib/auth.ts</span>) tries, in order: an API key (if the bearer token looks like one), a signed JWT carrying <code>userId</code>, a Redis-backed <code>authKey</code>, then a share token — which is only honoured alongside the share-context header. A 2FA <code>partial-auth</code> token is rejected outright. Flow detail: <a href="architecture-flows.html#login">login</a> and <a href="architecture-flows.html#share">share page</a>.</p>
+
+  <h2 id="backends"><span class="num">3</span>One function decides which database answers every analytics query</h2>
+  <p class="lede"><code>runQuery</code> in <span class="path">src/lib/db.ts</span> is the whole backend switch. Each SQL module hands it one closure per backend.</p>
+  <div class="grid cols-2">
+    <div><Code code={runQuerySrc} lang="ts" theme="github-light" /></div>
+    <div><Code code={queryShapeSrc} lang="ts" theme="github-light" /></div>
+  </div>
+  <Callout type="warn">
+    <p><strong>Two SQL dialects, kept in sync by hand.</strong> Every module in <span class="path">src/queries/sql/</span> carries a Postgres string and a ClickHouse string for the same metric. Nothing checks that they agree; <a href="channel-attribution.html#drift">Channel attribution</a> documents a live case where they do not. Change both, and test both (<code>pnpm test:api</code> and <code>pnpm test:api:clickhouse</code>).</p>
+  </Callout>
+  <p>Note the precedence: <em>any</em> <code>CLICKHOUSE_URL</code> routes analytics reads and event writes to ClickHouse, while Prisma still owns users, teams, websites and the other CRUD tables on Postgres.</p>
+
+  <h2 id="stores"><span class="num">4</span>Postgres is mandatory; the other three are switched on by environment variables</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Store</th><th>Enabled by</th><th>Used for</th><th>Code</th></tr></thead>
+      <tbody>
+        <tr><td>PostgreSQL</td><td><code>DATABASE_URL</code></td><td>All CRUD tables; all analytics too when ClickHouse is off</td><td><span class="path">src/lib/prisma.ts</span>, <span class="path">prisma/schema.prisma</span></td></tr>
+        <tr><td>ClickHouse</td><td><code>CLICKHOUSE_URL</code></td><td><code>website_event</code>, <code>event_data</code>, <code>session_data</code>, replays, heatmaps</td><td><span class="path">src/lib/clickhouse.ts</span>, <span class="path">db/clickhouse/schema.sql</span></td></tr>
+        <tr><td>Kafka</td><td><code>KAFKA_URL</code> and <code>KAFKA_BROKER</code></td><td>Event writes on the ClickHouse path go to topic messages instead of direct inserts (consumer not in this repo)</td><td><span class="path">src/lib/kafka.ts</span>, <span class="path">src/queries/sql/events/saveEvent.ts</span></td></tr>
+        <tr><td>Redis</td><td><code>REDIS_URL</code></td><td>24 h cache of <code>website:&#123;id&#125;</code>, <code>link:&#123;slug&#125;</code>, pixel lookups; login sessions as <code>auth:&lt;key&gt;</code></td><td><span class="path">src/lib/redis.ts</span>, <span class="path">src/lib/load.ts</span>, <span class="path">src/lib/auth.ts</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+  <Callout type="tip">
+    <p>Without Redis, <code>/api/send</code> looks the website up in Postgres on every hit that lacks a valid cache token. The tracker's <code>x-umami-cache</code> header is what keeps that cheap — see <a href="tracker-script.html#cache">the tracker script</a>.</p>
+  </Callout>
+
+  <h2 id="external"><span class="num">5</span>Geo comes from CDN headers first and a local MaxMind file second</h2>
+  <p class="lede"><code>getLocation</code> in <span class="path">src/lib/detect.ts</span> never calls a geo API over the network.</p>
+  <div class="steps a-platform">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Skip local and invalid IPs</div><div class="d">Private ranges return no location.</div><div class="meta">ipaddr.isValid · is-localhost-ip</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Trust provider headers</div><div class="d">Cloudflare, Vercel, CloudFront and EdgeOne country/region/city headers — unless <code>SKIP_LOCATION_HEADERS</code> is set or the payload supplied its own <code>ip</code>. <code>x-umami-client-*</code> headers are honoured only in <code>CLOUD_MODE</code>.</div><div class="meta">PROVIDER_HEADERS</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Fall back to GeoLite2</div><div class="d">Opens <code>GEOLITE_DB_PATH</code> or <span class="path">geo/GeoLite2-City.mmdb</span> (fetched at build time by <code>build:geo</code>) once per process.</div><div class="meta">maxmind.open → globalThis.maxmind</div></div></div>
+  </div>
+  <p>The only outbound calls are product-level: the update check (<code>UPDATES_URL</code>, <span class="path">src/store/version.ts</span>) and an optional telemetry pixel (<span class="path">src/app/api/scripts/telemetry/route.ts</span>).</p>
+
+  <Footer>
+    <span>Architecture · components — foundation</span>
+    <span>Source: <span class="path">src/lib/db.ts</span>, <span class="path">src/lib/request.ts</span>, <span class="path">src/lib/auth.ts</span>, <span class="path">src/lib/detect.ts</span>, <span class="path">src/lib/redis.ts</span>, <span class="path">src/lib/kafka.ts</span></span>
+  </Footer>
+</Base>

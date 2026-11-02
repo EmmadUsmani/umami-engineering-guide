@@ -1,0 +1,9 @@
+---
+interface Props { type?: 'note' | 'warn' | 'tip' | 'key'; icon?: string }
+const { type = 'note', icon } = Astro.props;
+const defaults = { note: 'ℹ️', warn: '⚠️', tip: '💡', key: '🔑' };
+---
+<div class={`callout ${type}`}>
+  <span class="ico" aria-hidden="true">{icon ?? defaults[type]}</span>
+  <div class="cbody"><slot /></div>
+</div>

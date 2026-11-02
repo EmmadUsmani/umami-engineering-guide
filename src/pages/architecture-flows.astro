@@ -1,0 +1,114 @@
+---
+import { Code } from 'astro:components';
+import Base from '../layouts/Base.astro';
+import Callout from '../components/Callout.astro';
+import Footer from '../components/Footer.astro';
+
+const sendBodySrc = `POST /api/send
+Content-Type: application/json
+x-umami-cache: <JWT from the previous response, if any>
+
+{ "type": "event",
+  "payload": { "website": "<uuid>", "hostname": "example.test", "url": "/pricing",
+               "referrer": "https://t.co/abc123", "title": "Pricing",
+               "screen": "1920x1080", "language": "en-US" } }
+
+→ 200 { "cache": "<JWT>", "sessionId": "<uuid v5>", "visitId": "<uuid v5>" }`;
+
+const linkSrc = `const payload = {
+  type: 'event',
+  payload: {
+    link: link.id,
+    url: request.url,
+    referrer: request.headers.get('referer') || undefined,
+  },
+};
+
+const req = new Request(request.url, {
+  method: 'POST',
+  headers: request.headers,
+  body: JSON.stringify(payload),
+});
+
+await POST(req);
+
+return NextResponse.redirect(link.url);`;
+---
+<Base title="Architecture · flows — Umami Engineering" description="Five end-to-end traces through Umami: page view, link click, login, dashboard query, share page." active="architecture-flows">
+  <style>
+    .hero .eyebrow { color: var(--d-collect); }
+    h2 .num { color: var(--d-collect); }
+  </style>
+
+  <section class="hero">
+    <div class="eyebrow">Foundation · Collect</div>
+    <h1>Architecture · flows</h1>
+    <p>What actually happens, file by file, when a visitor loads a page, clicks a short link, an admin logs in, a dashboard renders, or a stranger opens a public share link?</p>
+  </section>
+
+  <Callout type="key">
+    <p><strong>Every <code>website_event</code> write funnels through <code>POST</code> in <span class="path">src/app/api/send/route.ts</span>.</strong> Short links, pixels and batch uploads call that same function in-process rather than re-implementing it, so a change there changes every ingest path.</p>
+  </Callout>
+
+  <nav class="anchorlist">
+    <a href="#pageview">1 · Page view</a>
+    <a href="#link-click">2 · Short-link click</a>
+    <a href="#login">3 · Login</a>
+    <a href="#dashboard">4 · Dashboard query</a>
+    <a href="#share">5 · Share page</a>
+  </nav>
+
+  <h2 id="pageview"><span class="num">1</span>A page view is one unauthenticated POST that writes one row</h2>
+  <p class="lede">The browser half lives in <span class="path">src/tracker/index.ts</span>; the server half in <span class="path">src/app/api/send/route.ts</span>.</p>
+  <div class="steps a-collect">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Tracker initialises</div><div class="d">Reads <code>data-website-id</code> and friends from its own <code>&lt;script&gt;</code> tag; when the document is complete, auto-tracks a page view and hooks <code>history.pushState</code>/<code>replaceState</code>.</div><div class="meta">src/tracker/index.ts · init() → track()</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Opt-out checks, then POST</div><div class="d">Skips if <code>localStorage['umami.disabled']</code>, a non-matching <code>data-domains</code>, or Do-Not-Track (when <code>data-do-not-track</code> is set). Otherwise <code>fetch</code> with <code>keepalive: true</code> and the cached token.</div><div class="meta">trackingDisabled() · send()</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Validate and authenticate nothing</div><div class="d"><code>parseRequest(request, schema, &#123; skipAuth: true &#125;)</code>. The zod schema requires exactly one of <code>website</code>, <code>link</code>, <code>pixel</code> and rejects event names starting with <code>= + - @</code> (CSV-injection guard).</div><div class="meta">src/lib/request.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Trust the cache token or look the website up</div><div class="d">A valid <code>x-umami-cache</code> JWT of type <code>cache</code> skips <code>fetchWebsite</code>; otherwise an unknown or soft-deleted website returns 400.</div><div class="meta">parseToken · src/lib/load.ts fetchWebsite</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Client info, bots, blocked IPs</div><div class="d"><code>getClientInfo</code> parses UA and geo; <code>isbot(userAgent)</code> returns <code>&#123;beep: 'boop'&#125;</code> with status 200 (unless <code>DISABLE_BOT_CHECK</code>); <code>IGNORE_IP</code> matches (exact or CIDR) return 403.</div><div class="meta">src/lib/detect.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Derive session and visit</div><div class="d">Deterministic UUIDs from website, IP, UA, a month salt and the hour — the subject of <a href="session-identity.html">Session &amp; visit identity</a>. On Postgres a <code>session</code> row is created when there is no cached session.</div><div class="meta">src/lib/crypto.ts uuid · getSalt</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Split the URL and referrer, save</div><div class="d">Pulls <code>utm_*</code> and six click ids (<code>gclid</code>, <code>fbclid</code>, <code>msclkid</code>, <code>ttclid</code>, <code>li_fat_id</code>, <code>twclid</code>) from the landing URL; drops the referrer domain on self-referrals; <code>saveEvent</code> writes via Prisma, ClickHouse insert, or Kafka.</div><div class="meta">src/queries/sql/events/saveEvent.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Return a fresh cache token</div><div class="d">The response carries a JWT with <code>websiteId</code>, <code>sessionId</code>, <code>visitId</code>, <code>iat</code>; the tracker sends it back on the next hit.</div><div class="meta">createToken(…, secret())</div></div></div>
+  </div>
+  <Code code={sendBodySrc} lang="http" theme="github-light" />
+
+  <h2 id="link-click"><span class="num">2</span>A short-link click re-enters the collection route in-process, then redirects</h2>
+  <p class="lede"><span class="path">src/app/(collect)/q/[slug]/route.ts</span> does not duplicate any collection logic — it builds a synthetic request and calls <code>POST</code> from <span class="path">api/send/route.ts</span> directly.</p>
+  <Code code={linkSrc} lang="ts" theme="github-light" />
+  <p>The link lookup is cached in Redis for 24 h as <code>link:&#123;slug&#125;</code> when Redis is on. The event is saved with <code>event_type = 3</code> and <code>website_id</code> set to the <em>link's</em> id — links and pixels share the event table with websites. Pixels (<span class="path">p/[slug]</span>) follow the same pattern with <code>event_type = 4</code>. <span class="path">src/app/api/batch/route.ts</span> uses the same trick to replay an array of payloads through <code>send.POST</code>.</p>
+  <Callout type="note"><p>The redirect waits for <code>await POST(req)</code>, so a slow database adds latency to every short-link click.</p></Callout>
+
+  <h2 id="login"><span class="num">3</span>Login returns a token bound to the password hash</h2>
+  <p class="lede"><span class="path">src/app/api/auth/login/route.ts</span> issues one of two token shapes depending on whether Redis is configured.</p>
+  <div class="steps a-tenancy">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Check credentials</div><div class="d"><code>getUserByUsername</code> then <code>checkPassword</code> (bcrypt hash in <code>user.password</code>).</div><div class="meta">src/lib/password.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">2FA short-circuit</div><div class="d">If <code>two_factor_auth.is_enabled</code> (and not in cloud mode), respond <code>&#123;requiresTwoFactor: true, partialToken&#125;</code>. <code>checkAuth</code> refuses that token everywhere except the 2FA verify step.</div><div class="meta">PARTIAL_AUTH_TOKEN_TYPE</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Mint the session token</div><div class="d"><code>pwd = hash(user.password)</code>. With Redis: <code>saveAuth</code> stores <code>&#123;userId, role, pwd&#125;</code> under <code>auth:&lt;random&gt;</code> and returns that key, signed. Without: a self-contained secure token with the same fields.</div><div class="meta">src/lib/auth.ts saveAuth · src/lib/jwt.ts createSecureToken</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Every later request</div><div class="d"><code>checkAuth</code> reloads the user and compares <code>hash(user.password)</code> with <code>pwd</code>; changing the password invalidates every older token.</div><div class="meta">src/lib/auth.ts checkAuth</div></div></div>
+  </div>
+
+  <h2 id="dashboard"><span class="num">4</span>A dashboard tile is two queries: the period and the comparison period</h2>
+  <p class="lede"><span class="path">src/app/api/websites/[websiteId]/stats/route.ts</span> is the template for nearly every analytics endpoint.</p>
+  <div class="steps a-analytics">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Parse + authenticate</div><div class="d"><code>parseRequest(request, withDateRange(&#123; ...filterParams &#125;))</code> validates dates and filters and runs <code>checkAuth</code>.</div><div class="meta">src/lib/schema.ts · src/lib/request.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Authorise</div><div class="d"><code>canViewWebsiteSection(auth, websiteId, ['overview', 'compare'])</code>: admins pass; share tokens pass for their own entity ids; otherwise the user must own the website or belong to its team.</div><div class="meta">src/permissions/website.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Query twice</div><div class="d"><code>getWebsiteStats</code> for the range, then again for <code>getCompareDate(filters.compare ?? 'prev', …)</code>; both go through <a href="architecture-components.html#backends"><code>runQuery</code></a>.</div><div class="meta">src/queries/sql/getWebsiteStats.ts · src/lib/date.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Respond</div><div class="d"><code>json(&#123; ...data, comparison &#125;)</code>; the React client renders via TanStack Query hooks in <span class="path">src/components/hooks/queries/</span>.</div><div class="meta">src/lib/response.ts</div></div></div>
+  </div>
+
+  <h2 id="share"><span class="num">5</span>A public share link is a scoped token, not a login</h2>
+  <p class="lede"><span class="path">src/app/api/share/[slug]/route.ts</span> trades a share slug for a signed token limited to the shared website, link, pixel or board.</p>
+  <div class="steps a-links">
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Resolve the slug</div><div class="d"><code>getShareByCode(slug)</code> finds the <code>share</code> row; its <code>share_type</code> and <code>entity_id</code> say what is shared.</div><div class="meta">src/queries/prisma/share.ts</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Mint a share token</div><div class="d"><code>createToken(&#123; type: 'share', websiteId | linkId | … &#125;, secret())</code>; the share page (<span class="path">src/app/share/[slug]/</span>) keeps it client-side.</div><div class="meta">SHARE_TOKEN_TYPE</div></div></div>
+    <div class="step"><div class="marker"></div><div class="body"><div class="t">Call the normal API</div><div class="d">Requests carry <code>x-umami-share-token</code> <em>and</em> <code>x-umami-share-context</code>; <code>checkAuth</code> returns <code>authType: 'share'</code> only when both are present.</div><div class="meta">SHARE_TOKEN_HEADER · SHARE_CONTEXT_HEADER</div></div></div>
+  </div>
+  <Callout type="warn">
+    <p><strong>The cache token and share token are signed with the same secret.</strong> <code>parseShareToken</code> therefore rejects any token whose <code>type</code> is not <code>'share'</code> — otherwise the <code>/api/send</code> cache token (which carries a <code>websiteId</code>) could be replayed for read access. Keep that check if you add a token type.</p>
+  </Callout>
+
+  <Footer>
+    <span>Architecture · flows — foundation</span>
+    <span>Source: <span class="path">src/app/api/send/route.ts</span>, <span class="path">src/app/(collect)/q/[slug]/route.ts</span>, <span class="path">src/app/api/auth/login/route.ts</span>, <span class="path">src/app/api/websites/[websiteId]/stats/route.ts</span>, <span class="path">src/app/api/share/[slug]/route.ts</span></span>
+  </Footer>
+</Base>

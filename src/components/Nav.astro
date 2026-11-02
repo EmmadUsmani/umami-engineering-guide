@@ -1,0 +1,41 @@
+---
+interface Props { active?: string }
+const { active } = Astro.props;
+
+type Entry = { key: string; href: string; label: string } | { group: string };
+
+// THE single source of navigation. Adding a page = adding one link entry under its group.
+const entries: Entry[] = [
+  { key: 'index', href: 'index.html', label: 'Hub' },
+  { group: 'Architecture & data' },
+  { key: 'data-model', href: 'data-model.html', label: 'Data model' },
+  { key: 'architecture-components', href: 'architecture-components.html', label: 'Architecture · components' },
+  { key: 'architecture-flows', href: 'architecture-flows.html', label: 'Architecture · flows' },
+  { key: 'codebase', href: 'codebase.html', label: 'Codebase overview' },
+  { group: 'Deep dives' },
+  { key: 'session-identity', href: 'session-identity.html', label: 'Session & visit identity' },
+  { key: 'channel-attribution', href: 'channel-attribution.html', label: 'Channel attribution' },
+  { key: 'tracker-script', href: 'tracker-script.html', label: 'The tracker script' },
+];
+---
+<header class="topbar">
+  <button class="iconbtn burger" type="button" aria-label="Open navigation" aria-controls="site-drawer" aria-expanded="false" data-nav-toggle>
+    <span class="bar"></span><span class="bar"></span><span class="bar"></span>
+  </button>
+  <a class="brand" href="index.html"><span class="dot"></span>Umami Engineering</a>
+  <button class="iconbtn theme-toggle" type="button" aria-label="Toggle dark mode" data-theme-toggle></button>
+</header>
+<div class="backdrop" data-nav-close></div>
+<aside class="drawer" id="site-drawer" aria-label="Site navigation">
+  <div class="drawer-head">
+    <a class="brand" href="index.html"><span class="dot"></span>Umami Engineering</a>
+    <button class="iconbtn close" type="button" aria-label="Close navigation" data-nav-close>×</button>
+  </div>
+  <nav>
+    {entries.map((e) =>
+      'group' in e
+        ? <div class="group">{e.group}</div>
+        : <a href={e.href} class={e.key === active ? 'active' : undefined} aria-current={e.key === active ? 'page' : undefined}>{e.label}</a>
+    )}
+  </nav>
+</aside>
