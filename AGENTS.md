@@ -6,7 +6,7 @@ Read this before adding or editing a page. It is the project's memory: when you 
 
 - A static site of long-form onboarding guides explaining the **Umami** analytics codebase (`umami-software/umami`, read at version `3.4.1`) to engineers in their first weeks.
 - Stack: **Astro 5**, the only dependency (a dev dependency). No integrations, MDX, Tailwind, UI framework or client framework. One `.astro` file per page, one `.html` file per page in `dist/`.
-- Live URL: `https://<owner>.github.io/umami-engineering-guides/` (set by `deploy.yml`; PR previews at `…/pr-preview/pr-<N>/`).
+- Live URL: `https://<owner>.github.io/umami-engineering-guide/` (set by `deploy.yml`; PR previews at `…/pr-preview/pr-<N>/`).
 - Privacy: Umami is open source, so this site is **public by explicit decision**. If you fork this setup for a private codebase, make the repo private and restrict Pages visibility before pushing content. Never add anything that makes a request to another origin.
 - **Source of truth: the Umami code wins** — over older docs, over the README, and over this guide. If a page and the code disagree, fix the page and add a correction callout.
 
@@ -15,7 +15,7 @@ Read this before adding or editing a page. It is the project's memory: when you 
 | Path | What it is |
 |---|---|
 | `package.json` | one dev dependency (`astro`), scripts `dev` / `build` / `preview` |
-| `astro.config.mjs` | `site`, `base` (from `BASE_PATH`, default `/umami-engineering-guides/`), `build.format: 'file'` |
+| `astro.config.mjs` | `site`, `base` (from `BASE_PATH`, default `/umami-engineering-guide/`), `build.format: 'file'` |
 | `public/styles.css` | the entire design system (tokens, components, dark overrides) |
 | `public/nav.js` | drawer + theme toggle (event delegation) |
 | `public/.nojekyll` | keeps GitHub Pages from running Jekyll |
@@ -155,7 +155,7 @@ Tokens on `:root`, redefined under `:root[data-theme="dark"]`: surfaces (`--bg`,
 
 ```sh
 npm install
-npm run dev                          # live reload at http://localhost:4321/umami-engineering-guides/
+npm run dev                          # live reload at http://localhost:4321/umami-engineering-guide/
 npm run build                        # → dist/, one .html per page
 npm run preview                      # serve dist/ exactly as deployed
 BASE_PATH=/x/pr-preview/pr-1/ npm run build   # rehearse a PR-preview subpath

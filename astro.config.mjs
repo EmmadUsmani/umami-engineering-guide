@@ -5,12 +5,12 @@ import { defineConfig } from 'astro/config';
 // decision (spec §10.1), not a default. For a private target, make the repo private and
 // restrict Pages visibility instead.
 //
-// BASE_PATH lets CI build the same source for production (/umami-engineering-guides/)
-// and for PR previews (/umami-engineering-guides/pr-preview/pr-<N>/).
-const base = process.env.BASE_PATH || '/umami-engineering-guides/';
+// BASE_PATH lets CI build the same source for production (/umami-engineering-guide/)
+// and for PR previews (/umami-engineering-guide/pr-preview/pr-<N>/).
+const base = process.env.BASE_PATH || '/umami-engineering-guide/';
 
 export default defineConfig({
-  site: process.env.SITE_URL || 'https://umami-guides.github.io',
+  site: process.env.SITE_URL || 'https://emmadusmani.github.io',
   base,
   build: { format: 'file' },
 });

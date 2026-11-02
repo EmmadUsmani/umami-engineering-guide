@@ -7,6 +7,14 @@
 
 ---
 
+**Live site: <https://emmadusmani.github.io/umami-engineering-guide/>**
+
+| Hub | Data model | Channel attribution |
+|---|---|---|
+| [![Hub page](assets/screenshots/hub.png)](https://emmadusmani.github.io/umami-engineering-guide/) | [![Data model page](assets/screenshots/data-model.png)](https://emmadusmani.github.io/umami-engineering-guide/data-model.html) | [![Channel attribution page](assets/screenshots/channel-attribution.png)](https://emmadusmani.github.io/umami-engineering-guide/channel-attribution.html) |
+
+---
+
 ## What the guide covers
 
 Eight pages, written against Umami **3.4.1** (upstream commit `559e3c6`), in reading order:
@@ -68,12 +76,12 @@ A deliberately small static site:
 
 ```sh
 npm install
-npm run dev        # http://localhost:4321/umami-engineering-guides/
+npm run dev        # http://localhost:4321/umami-engineering-guide/
 npm run build      # static output in dist/ (8 pages)
 npm run preview    # serve dist/ exactly as it would deploy
 ```
 
-The site is served under the `/umami-engineering-guides/` base path, so the bare `localhost:4321/` shows nothing. Set `BASE_PATH=/` to serve from the root instead.
+The site is served under the `/umami-engineering-guide/` base path, so the bare `localhost:4321/` shows nothing. Set `BASE_PATH=/` to serve from the root instead.
 
 **This repo isn't deployed anywhere and has no remote.** The GitHub Actions workflows (publish `main` to a `gh-pages` branch, plus per-PR previews under `pr-preview/pr-<N>/`) show the intended hosting set-up but have never run.
 
