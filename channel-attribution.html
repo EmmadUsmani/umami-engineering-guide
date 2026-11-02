@@ -1,0 +1,262 @@
+<!DOCTYPE html><html lang="en"> <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Channel attribution — Umami Engineering</title><meta name="description" content="How Umami turns referrers and UTM tags into channels, and where the Postgres, ClickHouse and revenue copies of that rule disagree."><link rel="icon" href="data:,"><link rel="stylesheet" href="/umami-engineering-guide/styles.css"><script src="/umami-engineering-guide/nav.js" defer></script><script>
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('umami-guides-theme'); } catch (e) { t = null; }
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        document.documentElement.setAttribute('data-theme', t);
+      })();
+    </script><style>html .widget{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent, var(--brand));border-radius:var(--radius);padding:16px 18px;margin:20px 0;box-shadow:var(--shadow-sm)}html .wtitle{display:flex;align-items:center;gap:10px;font-weight:750;font-size:17px;flex-wrap:wrap}html .wbadge{background:var(--accent, var(--brand));color:#fff;font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;padding:2px 9px;border-radius:999px}html[data-theme=dark] .wbadge{color:#1d1b19}html .wsub{color:var(--ink-soft);font-size:14.5px;margin:4px 0 12px}html .wcontrols{display:flex;flex-wrap:wrap;gap:12px 18px;margin:10px 0 14px}html .wctl{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-soft);min-width:0;flex:1 1 200px}html .wctl.wide{flex-basis:100%}html .wctl input[type=text],html .wctl select{font:13px var(--mono);padding:6px 8px;border-radius:6px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink);min-width:0;width:100%}html .wctl input[type=text]:disabled{opacity:.6}html .wctl .nullbox{display:inline-flex;align-items:center;gap:4px;font-family:var(--mono);font-size:12px;color:var(--ink-soft)}html .wout{border-top:1px dashed var(--line-strong);padding-top:12px}html .chgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}@media(max-width:980px){html .chgrid{grid-template-columns:repeat(2,minmax(0,1fr))}}@media(max-width:560px){html .chgrid{grid-template-columns:minmax(0,1fr)}}html .chcard{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;min-width:0}html .chname{font-weight:700;font-size:13.5px;color:var(--ink)}html .chfile{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft);overflow-wrap:anywhere}html .chval{font-family:var(--mono);font-size:19px;font-weight:800;color:var(--accent, var(--brand-dark));margin:6px 0 2px;overflow-wrap:anywhere}html .chwhy,html .chpre{font-size:12.5px;color:var(--ink-soft);overflow-wrap:anywhere}html .chtrace{display:flex;flex-wrap:wrap;gap:3px;margin-top:6px}html .tb{font-family:var(--mono);font-size:11px;padding:0 4px;border-radius:4px;border:1px solid}html .tb-t{background:#e6f5ea;color:#1d5a2f;border-color:#b9e0c3}html .tb-f{background:transparent;color:var(--ink-soft);border-color:var(--line-strong)}html .tb-x{background:transparent;color:var(--ink-soft);border-color:var(--line-strong);border-style:dashed}html .tb-n{background:#fdf2dc;color:#6e4800;border-color:#f0d9a6}html[data-theme=dark] .tb-t{background:#1c3524;color:#a6e3b8;border-color:#2d5a3a}html[data-theme=dark] .tb-n{background:#3a2f17;color:#f1d08a;border-color:#5e4a1f}html .chnote{font-size:13px;color:var(--ink-soft);margin-top:8px}html .verdict{margin-top:12px;padding:10px 12px;border-radius:var(--radius-sm);border:1px solid;font-size:14.5px}html .verdict.ok{background:#e6f5ea;color:#1d5a2f;border-color:#b9e0c3}html .verdict.stop{background:#fde8e6;color:#8f2417;border-color:#f3c3bd}html[data-theme=dark] .verdict.ok{background:#1c3524;color:#a6e3b8;border-color:#2d5a3a}html[data-theme=dark] .verdict.stop{background:#3d211d;color:#f6b3aa;border-color:#6a3329}.hero[data-astro-cid-yukvp7kl] .eyebrow[data-astro-cid-yukvp7kl],h2[data-astro-cid-yukvp7kl] .num[data-astro-cid-yukvp7kl]{color:var(--d-analytics)}
+</style></head> <body> <header class="topbar"> <button class="iconbtn burger" type="button" aria-label="Open navigation" aria-controls="site-drawer" aria-expanded="false" data-nav-toggle> <span class="bar"></span><span class="bar"></span><span class="bar"></span> </button> <a class="brand" href="index.html"><span class="dot"></span>Umami Engineering</a> <button class="iconbtn theme-toggle" type="button" aria-label="Toggle dark mode" data-theme-toggle></button> </header> <div class="backdrop" data-nav-close></div> <aside class="drawer" id="site-drawer" aria-label="Site navigation"> <div class="drawer-head"> <a class="brand" href="index.html"><span class="dot"></span>Umami Engineering</a> <button class="iconbtn close" type="button" aria-label="Close navigation" data-nav-close>×</button> </div> <nav> <a href="index.html">Hub</a><div class="group">Architecture &amp; data</div><a href="data-model.html">Data model</a><a href="architecture-components.html">Architecture · components</a><a href="architecture-flows.html">Architecture · flows</a><a href="codebase.html">Codebase overview</a><div class="group">Deep dives</div><a href="session-identity.html">Session &amp; visit identity</a><a href="channel-attribution.html" class="active" aria-current="page">Channel attribution</a><a href="tracker-script.html">The tracker script</a> </nav> </aside> <main class="wrap">    <section class="hero" data-astro-cid-yukvp7kl> <div class="eyebrow" data-astro-cid-yukvp7kl>Deep-dive · Analytics</div> <h1 data-astro-cid-yukvp7kl>Channel attribution</h1> <p data-astro-cid-yukvp7kl>How does a visit end up labelled <code data-astro-cid-yukvp7kl>paidAds</code>, <code data-astro-cid-yukvp7kl>organicSocial</code> or <code data-astro-cid-yukvp7kl>direct</code>? Nothing is stored: a SQL <code data-astro-cid-yukvp7kl>CASE</code> classifies every event at query time — and Umami carries six copies of that <code data-astro-cid-yukvp7kl>CASE</code> that do not all agree.</p> </section> <div class="callout key"> <span class="ico" aria-hidden="true">🔑</span> <div class="cbody"> <p data-astro-cid-yukvp7kl><strong data-astro-cid-yukvp7kl>A channel is computed, not stored.</strong> Changing the rule re-labels all historical data the next time a report runs — and because the rule is copied six times, a change to one copy silently splits the reports.</p> </div> </div> <nav class="anchorlist" data-astro-cid-yukvp7kl> <a href="#case" data-astro-cid-yukvp7kl>1 · The CASE</a> <a href="#resolver" data-astro-cid-yukvp7kl>2 · Resolver</a> <a href="#drift" data-astro-cid-yukvp7kl>3 · Six copies</a> <a href="#null" data-astro-cid-yukvp7kl>4 · NULL ≠ ''</a> <a href="#substring" data-astro-cid-yukvp7kl>5 · Substrings</a> <a href="#visit" data-astro-cid-yukvp7kl>6 · Per visit</a> </nav> <h2 id="case" data-astro-cid-yukvp7kl><span class="num" data-astro-cid-yukvp7kl>1</span>Twelve WHEN branches, first true one wins</h2> <p class="lede" data-astro-cid-yukvp7kl>The inputs are five <code data-astro-cid-yukvp7kl>website_event</code> columns written by <a href="architecture-flows.html#pageview" data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>/api/send</code></a>: <code data-astro-cid-yukvp7kl>referrer_domain</code>, <code data-astro-cid-yukvp7kl>url_query</code>, <code data-astro-cid-yukvp7kl>utm_medium</code>, <code data-astro-cid-yukvp7kl>utm_source</code>, <code data-astro-cid-yukvp7kl>hostname</code>.</p> <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-astro-cid-yukvp7kl data-language="sql"><code><span class="line"><span style="color:#D73A49">WITH</span><span style="color:#24292E"> prefix </span><span style="color:#D73A49">AS</span><span style="color:#24292E"> (</span></span>
+<span class="line"><span style="color:#D73A49">  select</span><span style="color:#D73A49"> case</span><span style="color:#D73A49"> when</span><span style="color:#005CC5"> website_event</span><span style="color:#24292E">.</span><span style="color:#005CC5">utm_medium</span><span style="color:#D73A49"> LIKE</span><span style="color:#032F62"> 'p%'</span><span style="color:#D73A49"> OR</span></span>
+<span class="line"><span style="color:#005CC5">      website_event</span><span style="color:#24292E">.</span><span style="color:#005CC5">utm_medium</span><span style="color:#D73A49"> LIKE</span><span style="color:#032F62"> '%ppc%'</span><span style="color:#D73A49"> OR</span></span>
+<span class="line"><span style="color:#005CC5">      website_event</span><span style="color:#24292E">.</span><span style="color:#005CC5">utm_medium</span><span style="color:#D73A49"> LIKE</span><span style="color:#032F62"> '%retargeting%'</span><span style="color:#D73A49"> OR</span></span>
+<span class="line"><span style="color:#005CC5">      website_event</span><span style="color:#24292E">.</span><span style="color:#005CC5">utm_medium</span><span style="color:#D73A49"> LIKE</span><span style="color:#032F62"> '%paid%'</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'paid'</span><span style="color:#D73A49"> else</span><span style="color:#032F62"> 'organic'</span><span style="color:#D73A49"> end</span><span style="color:#24292E"> prefix,</span></span>
+<span class="line"><span style="color:#24292E">  ...</span></span>
+<span class="line"><span style="color:#24292E">channels </span><span style="color:#D73A49">as</span><span style="color:#24292E"> (</span></span>
+<span class="line"><span style="color:#D73A49">  select</span><span style="color:#D73A49"> case</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> referrer_domain </span><span style="color:#D73A49">=</span><span style="color:#032F62"> ''</span><span style="color:#D73A49"> and</span><span style="color:#24292E"> url_query </span><span style="color:#D73A49">=</span><span style="color:#032F62"> ''</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'direct'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'url_query'</span><span style="color:#24292E">, PAID_AD_PARAMS)} </span><span style="color:#D73A49">then</span><span style="color:#032F62"> 'paidAds'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'utm_medium'</span><span style="color:#24292E">, ['referral', 'app', 'link'])} </span><span style="color:#D73A49">then</span><span style="color:#032F62"> 'referral'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> utm_medium ilike </span><span style="color:#032F62">'%affiliate%'</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'affiliate'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> utm_medium ilike </span><span style="color:#032F62">'%sms%'</span><span style="color:#D73A49"> or</span><span style="color:#24292E"> utm_source ilike </span><span style="color:#032F62">'%sms%'</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'sms'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'referrer_domain'</span><span style="color:#24292E">, LLM_DOMAINS)} </span><span style="color:#D73A49">then</span><span style="color:#032F62"> 'llm'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'referrer_domain'</span><span style="color:#24292E">, SEARCH_DOMAINS)} </span><span style="color:#D73A49">or</span><span style="color:#24292E"> utm_medium ilike </span><span style="color:#032F62">'%organic%'</span><span style="color:#D73A49"> then</span><span style="color:#005CC5"> concat</span><span style="color:#24292E">(prefix, </span><span style="color:#032F62">'Search'</span><span style="color:#24292E">)</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'referrer_domain'</span><span style="color:#24292E">, SOCIAL_DOMAINS)} </span><span style="color:#D73A49">then</span><span style="color:#005CC5"> concat</span><span style="color:#24292E">(prefix, </span><span style="color:#032F62">'Social'</span><span style="color:#24292E">)</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'referrer_domain'</span><span style="color:#24292E">, EMAIL_DOMAINS)} </span><span style="color:#D73A49">or</span><span style="color:#24292E"> utm_medium ilike </span><span style="color:#032F62">'%mail%'</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'email'</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'referrer_domain'</span><span style="color:#24292E">, SHOPPING_DOMAINS)} </span><span style="color:#D73A49">or</span><span style="color:#24292E"> utm_medium ilike </span><span style="color:#032F62">'%shop%'</span><span style="color:#D73A49"> then</span><span style="color:#005CC5"> concat</span><span style="color:#24292E">(prefix, </span><span style="color:#032F62">'Shopping'</span><span style="color:#24292E">)</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> ${toPostgresLikeClause(</span><span style="color:#032F62">'referrer_domain'</span><span style="color:#24292E">, VIDEO_DOMAINS)} </span><span style="color:#D73A49">or</span><span style="color:#24292E"> utm_medium ilike </span><span style="color:#032F62">'%video%'</span><span style="color:#D73A49"> then</span><span style="color:#005CC5"> concat</span><span style="color:#24292E">(prefix, </span><span style="color:#032F62">'Video'</span><span style="color:#24292E">)</span></span>
+<span class="line"><span style="color:#D73A49">      when</span><span style="color:#24292E"> referrer_domain </span><span style="color:#D73A49">!=</span><span style="color:#24292E"> regexp_replace(hostname, </span><span style="color:#032F62">'^www.'</span><span style="color:#24292E">, </span><span style="color:#032F62">''</span><span style="color:#24292E">) </span><span style="color:#D73A49">and</span><span style="color:#24292E"> referrer_domain </span><span style="color:#D73A49">!=</span><span style="color:#032F62"> ''</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'referral'</span></span>
+<span class="line"><span style="color:#D73A49">      else</span><span style="color:#032F62"> ''</span><span style="color:#D73A49"> end</span><span style="color:#D73A49"> AS</span><span style="color:#24292E"> x,</span></span></code></pre> <div class="tablewrap" data-astro-cid-yukvp7kl> <table data-astro-cid-yukvp7kl> <thead data-astro-cid-yukvp7kl><tr data-astro-cid-yukvp7kl><th data-astro-cid-yukvp7kl>#</th><th data-astro-cid-yukvp7kl>Channel</th><th data-astro-cid-yukvp7kl>Fires when</th><th data-astro-cid-yukvp7kl>List (<span class="path" data-astro-cid-yukvp7kl>src/lib/constants.ts</span>)</th></tr></thead> <tbody data-astro-cid-yukvp7kl> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>1</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>direct</code></td><td data-astro-cid-yukvp7kl>no referrer domain and no query string</td><td data-astro-cid-yukvp7kl>—</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>2</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>paidAds</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>url_query</code> contains a click id or paid UTM</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>PAID_AD_PARAMS</code> (17, e.g. <code data-astro-cid-yukvp7kl>gclid=</code>, <code data-astro-cid-yukvp7kl>utm_source=google</code>)</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>3</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>referral</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>utm_medium</code> contains <code data-astro-cid-yukvp7kl>referral</code>, <code data-astro-cid-yukvp7kl>app</code> or <code data-astro-cid-yukvp7kl>link</code></td><td data-astro-cid-yukvp7kl>inline</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>4–5</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>affiliate</code>, <code data-astro-cid-yukvp7kl>sms</code></td><td data-astro-cid-yukvp7kl>medium (or source, for sms) contains the word</td><td data-astro-cid-yukvp7kl>inline</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>6</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>llm</code></td><td data-astro-cid-yukvp7kl>referrer is an AI assistant</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>LLM_DOMAINS</code> (6)</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>7–8</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>…Search</code>, <code data-astro-cid-yukvp7kl>…Social</code></td><td data-astro-cid-yukvp7kl>search or social referrer (search also: medium contains <code data-astro-cid-yukvp7kl>organic</code>)</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>SEARCH_DOMAINS</code> (8), <code data-astro-cid-yukvp7kl>SOCIAL_DOMAINS</code> (15)</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>9</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>email</code></td><td data-astro-cid-yukvp7kl>webmail referrer or medium contains <code data-astro-cid-yukvp7kl>mail</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>EMAIL_DOMAINS</code> (6)</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>10–11</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>…Shopping</code>, <code data-astro-cid-yukvp7kl>…Video</code></td><td data-astro-cid-yukvp7kl>shop/video referrer or medium word</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>SHOPPING_DOMAINS</code> (9), <code data-astro-cid-yukvp7kl>VIDEO_DOMAINS</code> (2)</td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>12</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>referral</code></td><td data-astro-cid-yukvp7kl>any other non-empty referrer that is not this host</td><td data-astro-cid-yukvp7kl>—</td></tr> </tbody> </table> </div> <p data-astro-cid-yukvp7kl>Search, Social, Shopping and Video get a <code data-astro-cid-yukvp7kl>paid</code> or <code data-astro-cid-yukvp7kl>organic</code> prefix from the medium; the others do not. Custom events and performance beacons are excluded up front (<code data-astro-cid-yukvp7kl>event_type NOT IN (2, 5)</code>, see <a href="data-model.html#lifecycle" data-astro-cid-yukvp7kl>event types</a>).</p> <h2 id="resolver" data-astro-cid-yukvp7kl><span class="num" data-astro-cid-yukvp7kl>2</span>Run one row through all four live copies of the rule</h2> <p class="lede" data-astro-cid-yukvp7kl>The default row is test persona <code data-astro-cid-yukvp7kl>alice</code>'s landing page view, exactly as <code data-astro-cid-yukvp7kl>/api/send</code> stores it; <span class="path" data-astro-cid-yukvp7kl>tests/api/revenue.spec.ts</span> asserts her revenue lands in <code data-astro-cid-yukvp7kl>paidAds</code> on both Postgres and ClickHouse.</p> <div class="widget a-analytics" id="ch-widget" data-astro-cid-yukvp7kl> <div class="wtitle" data-astro-cid-yukvp7kl><span class="wbadge" data-astro-cid-yukvp7kl>Interactive</span><span data-astro-cid-yukvp7kl>Which channel does this visit land in — and does every report agree?</span></div> <p class="wsub" data-astro-cid-yukvp7kl>Pick a preset or edit the stored column values (tick NULL for a missing Postgres value). Each card runs a JavaScript port of that copy of the <code data-astro-cid-yukvp7kl>CASE</code>, including SQL's NULL logic; the trace shows each WHEN as ✓ true, ✗ false, ? NULL, or – not reached (CASE stops at the first true branch).</p> <div class="wcontrols" data-astro-cid-yukvp7kl> <label class="wctl wide" data-astro-cid-yukvp7kl>preset <select id="ch-preset" data-astro-cid-yukvp7kl><option value="alice" data-astro-cid-yukvp7kl>alice</option></select></label> <label class="wctl" data-astro-cid-yukvp7kl>referrer_domain <input type="text" id="ch-referrer_domain" spellcheck="false" data-astro-cid-yukvp7kl><span class="nullbox" data-astro-cid-yukvp7kl><input type="checkbox" id="ch-referrer_domain-null" data-astro-cid-yukvp7kl> NULL</span></label> <label class="wctl wide" data-astro-cid-yukvp7kl>url_query <input type="text" id="ch-url_query" spellcheck="false" data-astro-cid-yukvp7kl><span class="nullbox" data-astro-cid-yukvp7kl><input type="checkbox" id="ch-url_query-null" data-astro-cid-yukvp7kl> NULL</span></label> <label class="wctl" data-astro-cid-yukvp7kl>utm_medium <input type="text" id="ch-utm_medium" spellcheck="false" data-astro-cid-yukvp7kl><span class="nullbox" data-astro-cid-yukvp7kl><input type="checkbox" id="ch-utm_medium-null" data-astro-cid-yukvp7kl> NULL</span></label> <label class="wctl" data-astro-cid-yukvp7kl>utm_source <input type="text" id="ch-utm_source" spellcheck="false" data-astro-cid-yukvp7kl><span class="nullbox" data-astro-cid-yukvp7kl><input type="checkbox" id="ch-utm_source-null" data-astro-cid-yukvp7kl> NULL</span></label> <label class="wctl" data-astro-cid-yukvp7kl>hostname <input type="text" id="ch-hostname" spellcheck="false" data-astro-cid-yukvp7kl><span class="nullbox" data-astro-cid-yukvp7kl><input type="checkbox" id="ch-hostname-null" data-astro-cid-yukvp7kl> NULL</span></label> </div> <div class="wout" id="ch-out" aria-live="polite" data-astro-cid-yukvp7kl></div> </div> <p class="small muted" data-astro-cid-yukvp7kl>The ClickHouse cards replace NULL with <code data-astro-cid-yukvp7kl>''</code>, as ClickHouse's non-<code data-astro-cid-yukvp7kl>Nullable</code> <code data-astro-cid-yukvp7kl>String</code> columns do. The same port is executed by a standalone Node check (<code data-astro-cid-yukvp7kl>vm</code>-loaded from this site's <span class="path" data-astro-cid-yukvp7kl>src/widgets/channel-logic.js</span>), which reproduces the three persona outcomes asserted in <span class="path" data-astro-cid-yukvp7kl>tests/api/revenue.spec.ts</span>: alice → <code data-astro-cid-yukvp7kl>paidAds</code>, bob → <code data-astro-cid-yukvp7kl>organicSocial</code>, carol → <code data-astro-cid-yukvp7kl>direct</code>.</p> <h2 id="drift" data-astro-cid-yukvp7kl><span class="num" data-astro-cid-yukvp7kl>3</span>Six copies of the rule exist, and the Postgres channel report is the odd one out</h2> <p class="lede" data-astro-cid-yukvp7kl>Three query files × two dialects. Their WHEN lists match; their <code data-astro-cid-yukvp7kl>paid</code>/<code data-astro-cid-yukvp7kl>organic</code> prefix and their fallback do not.</p> <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-astro-cid-yukvp7kl data-language="sql"><code><span class="line"><span style="color:#6A737D">-- getChannelMetrics.ts, Postgres (case-sensitive LIKE, anchored 'p%')</span></span>
+<span class="line"><span style="color:#D73A49">case</span><span style="color:#D73A49"> when</span><span style="color:#24292E"> utm_medium </span><span style="color:#D73A49">LIKE</span><span style="color:#032F62"> 'p%'</span><span style="color:#D73A49"> OR</span><span style="color:#24292E"> utm_medium </span><span style="color:#D73A49">LIKE</span><span style="color:#032F62"> '%ppc%'</span><span style="color:#D73A49"> OR</span><span style="color:#24292E"> ... </span><span style="color:#D73A49">then</span><span style="color:#032F62"> 'paid'</span><span style="color:#D73A49"> else</span><span style="color:#032F62"> 'organic'</span><span style="color:#D73A49"> end</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">-- revenue/getRevenueMetrics.ts, Postgres (case-insensitive, substring '%cp%')</span></span>
+<span class="line"><span style="color:#D73A49">case</span><span style="color:#D73A49"> when</span><span style="color:#005CC5"> we</span><span style="color:#24292E">.</span><span style="color:#005CC5">utm_medium</span><span style="color:#24292E"> ilike </span><span style="color:#032F62">'%cp%'</span><span style="color:#D73A49"> OR</span><span style="color:#005CC5"> we</span><span style="color:#24292E">.</span><span style="color:#005CC5">utm_medium</span><span style="color:#24292E"> ilike </span><span style="color:#032F62">'%ppc%'</span><span style="color:#D73A49"> OR</span><span style="color:#24292E"> ... </span><span style="color:#D73A49">then</span><span style="color:#032F62"> 'paid'</span><span style="color:#D73A49"> else</span><span style="color:#032F62"> 'organic'</span><span style="color:#D73A49"> end</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#6A737D">-- every ClickHouse copy (lowercased substring 'cp')</span></span>
+<span class="line"><span style="color:#D73A49">case</span><span style="color:#D73A49"> when</span><span style="color:#24292E"> multiSearchAny(</span><span style="color:#005CC5">lower</span><span style="color:#24292E">(utm_medium), ['cp', 'ppc', 'retargeting', 'paid']) </span><span style="color:#D73A49">!=</span><span style="color:#005CC5"> 0</span><span style="color:#D73A49"> then</span><span style="color:#032F62"> 'paid'</span><span style="color:#D73A49"> else</span><span style="color:#032F62"> 'organic'</span><span style="color:#D73A49"> end</span></span></code></pre> <div class="tablewrap" data-astro-cid-yukvp7kl> <table data-astro-cid-yukvp7kl> <thead data-astro-cid-yukvp7kl><tr data-astro-cid-yukvp7kl><th data-astro-cid-yukvp7kl>Copy</th><th data-astro-cid-yukvp7kl>Prefix "paid" test</th><th data-astro-cid-yukvp7kl>NULLs</th><th data-astro-cid-yukvp7kl>Nothing matched →</th></tr></thead> <tbody data-astro-cid-yukvp7kl> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl><span class="path" data-astro-cid-yukvp7kl>getChannelMetrics.ts</span> + <span class="path" data-astro-cid-yukvp7kl>getChannelExpandedMetrics.ts</span>, Postgres</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>LIKE 'p%'</code> — <em data-astro-cid-yukvp7kl>starts with</em> p, case-sensitive</td><td data-astro-cid-yukvp7kl>kept as NULL</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>direct</code></td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>same files, ClickHouse</td><td data-astro-cid-yukvp7kl>contains <code data-astro-cid-yukvp7kl>cp</code>, case-insensitive</td><td data-astro-cid-yukvp7kl>impossible (<code data-astro-cid-yukvp7kl>''</code>)</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>direct</code></td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl><span class="path" data-astro-cid-yukvp7kl>revenue/getRevenueMetrics.ts</span>, Postgres</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>ilike '%cp%'</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>coalesce(…, '')</code> on referrer and query</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>Unknown</code></td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl>same file, ClickHouse</td><td data-astro-cid-yukvp7kl>contains <code data-astro-cid-yukvp7kl>cp</code></td><td data-astro-cid-yukvp7kl>impossible</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>Unknown</code></td></tr> </tbody> </table> </div> <div class="callout warn"> <span class="ico" aria-hidden="true">⚠️</span> <div class="cbody"> <p data-astro-cid-yukvp7kl><strong data-astro-cid-yukvp7kl>Correction: "paid search" means different things on the two backends.</strong> The seed script's own paid campaign — <code data-astro-cid-yukvp7kl>google / cpc / brand_search</code> from <span class="path" data-astro-cid-yukvp7kl>scripts/seed/distributions/referrers.ts</span> — is <code data-astro-cid-yukvp7kl>organicSearch</code> in the Postgres channels report (<code data-astro-cid-yukvp7kl>'cpc'</code> does not start with <code data-astro-cid-yukvp7kl>p</code>) but <code data-astro-cid-yukvp7kl>paidSearch</code> in the revenue report and on ClickHouse. Conversely <code data-astro-cid-yukvp7kl>utm_medium=partner</code> is <code data-astro-cid-yukvp7kl>paid</code> on Postgres only. Pick the <em data-astro-cid-yukvp7kl>seed: google / cpc</em> and <em data-astro-cid-yukvp7kl>utm_medium=partner</em> presets above. Neither case is covered by a test: <span class="path" data-astro-cid-yukvp7kl>getChannelMetrics.test.ts</span> asserts only on SQL text.</p> </div> </div> <h2 id="null" data-astro-cid-yukvp7kl><span class="num" data-astro-cid-yukvp7kl>4</span>On Postgres, a missing referrer is NULL, so the "direct" branch never fires for it</h2> <p class="lede" data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>/api/send</code> leaves <code data-astro-cid-yukvp7kl>referrerDomain</code> undefined when there is no referrer (or it is a self-referral), so Prisma stores NULL — while <code data-astro-cid-yukvp7kl>url_query</code> is <code data-astro-cid-yukvp7kl>''</code>.</p> <p data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>NULL = ''</code> is NULL, not true, so WHEN #1 is skipped and every later test against <code data-astro-cid-yukvp7kl>referrer_domain</code> is also NULL. Persona <code data-astro-cid-yukvp7kl>carol</code> still ends up <code data-astro-cid-yukvp7kl>direct</code>, but by the fallback <code data-astro-cid-yukvp7kl>coalesce(nullif(x, ''), 'direct')</code>, not by branch #1 — the resolver's trace shows the <code data-astro-cid-yukvp7kl>?</code> marks. The difference becomes visible when the row has UTM columns but an empty or NULL query string, which the tracker never produces but <span class="path" data-astro-cid-yukvp7kl>scripts/seed</span> does (it writes <code data-astro-cid-yukvp7kl>urlQuery: null</code> for every event): the <em data-astro-cid-yukvp7kl>seed: newsletter / email</em> preset is <code data-astro-cid-yukvp7kl>email</code> in the Postgres channels report and <code data-astro-cid-yukvp7kl>direct</code> everywhere else.</p> <div class="callout note"> <span class="ico" aria-hidden="true">ℹ️</span> <div class="cbody"> <p data-astro-cid-yukvp7kl>Because the seed script puts UTM values in columns but never in <code data-astro-cid-yukvp7kl>url_query</code>, branch #2 (<code data-astro-cid-yukvp7kl>paidAds</code>) can never fire on seeded Postgres data. Seeded dashboards under-report <code data-astro-cid-yukvp7kl>paidAds</code> compared with tracker-collected data; do not use them to sanity-check channel changes. Use the API suite's personas instead (<a href="codebase.html#tests" data-astro-cid-yukvp7kl>codebase · tests</a>).</p> </div> </div> <h2 id="substring" data-astro-cid-yukvp7kl><span class="num" data-astro-cid-yukvp7kl>5</span>Domain lists match substrings, so <code data-astro-cid-yukvp7kl>t.co</code> claims more than Twitter</h2> <p class="lede" data-astro-cid-yukvp7kl>Every list entry becomes <code data-astro-cid-yukvp7kl>ilike '%entry%'</code> (Postgres) or <code data-astro-cid-yukvp7kl>multiSearchAny(lower(col), […])</code> (ClickHouse) — a substring test, not a domain match.</p> <div class="tablewrap" data-astro-cid-yukvp7kl> <table data-astro-cid-yukvp7kl> <thead data-astro-cid-yukvp7kl><tr data-astro-cid-yukvp7kl><th data-astro-cid-yukvp7kl>Referrer</th><th data-astro-cid-yukvp7kl>Matches</th><th data-astro-cid-yukvp7kl>Result</th></tr></thead> <tbody data-astro-cid-yukvp7kl> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>producthunt.com</code> (a seed "referral" site)</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>t.co</code> in <code data-astro-cid-yukvp7kl>SOCIAL_DOMAINS</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>organicSocial</code>, not <code data-astro-cid-yukvp7kl>referral</code></td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>walmart.com</code>, <code data-astro-cid-yukvp7kl>target.com</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>t.co</code> (Social, branch 8) before Shopping (branch 10)</td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>organicSocial</code></td></tr> <tr data-astro-cid-yukvp7kl><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>dropbox.com</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>x.com</code></td><td data-astro-cid-yukvp7kl><code data-astro-cid-yukvp7kl>organicSocial</code></td></tr> </tbody> </table> </div> <p data-astro-cid-yukvp7kl>Type any of these into the resolver's <code data-astro-cid-yukvp7kl>referrer_domain</code> to confirm. The fix is a list that matches on label boundaries; until then, add new entries with a leading or trailing dot where possible (<code data-astro-cid-yukvp7kl>linkedin.</code>, <code data-astro-cid-yukvp7kl>reddit.</code> already do).</p> <h2 id="visit" data-astro-cid-yukvp7kl><span class="num" data-astro-cid-yukvp7kl>6</span>A visit takes the first non-empty channel of its events</h2> <p class="lede" data-astro-cid-yukvp7kl>The channels report counts sessions per channel after collapsing each visit to one label.</p> <pre class="astro-code github-light" style="background-color:#fff;color:#24292e; overflow-x: auto;" tabindex="0" data-astro-cid-yukvp7kl data-language="sql"><code><span class="line"><span style="color:#24292E">visit_channels </span><span style="color:#D73A49">as</span><span style="color:#24292E"> (</span></span>
+<span class="line"><span style="color:#D73A49">  select</span><span style="color:#24292E"> session_id, visit_id, </span><span style="color:#005CC5">coalesce</span><span style="color:#24292E">(</span><span style="color:#005CC5">nullif</span><span style="color:#24292E">(x, </span><span style="color:#032F62">''</span><span style="color:#24292E">), </span><span style="color:#032F62">'direct'</span><span style="color:#24292E">) </span><span style="color:#D73A49">as</span><span style="color:#24292E"> x</span></span>
+<span class="line"><span style="color:#D73A49">  from</span><span style="color:#24292E"> (</span></span>
+<span class="line"><span style="color:#D73A49">    select</span><span style="color:#24292E"> x, session_id, visit_id,</span></span>
+<span class="line"><span style="color:#005CC5">      row_number</span><span style="color:#24292E">() </span><span style="color:#D73A49">over</span><span style="color:#24292E"> (</span></span>
+<span class="line"><span style="color:#D73A49">        partition</span><span style="color:#D73A49"> by</span><span style="color:#24292E"> session_id, visit_id</span></span>
+<span class="line"><span style="color:#D73A49">        order by</span><span style="color:#D73A49"> case</span><span style="color:#D73A49"> when</span><span style="color:#24292E"> x </span><span style="color:#D73A49">!=</span><span style="color:#032F62"> ''</span><span style="color:#D73A49"> then</span><span style="color:#005CC5"> 0</span><span style="color:#D73A49"> else</span><span style="color:#005CC5"> 1</span><span style="color:#D73A49"> end</span><span style="color:#24292E">, created_at, event_id</span></span>
+<span class="line"><span style="color:#24292E">      ) </span><span style="color:#D73A49">as</span><span style="color:#24292E"> row_num</span></span>
+<span class="line"><span style="color:#D73A49">    from</span><span style="color:#24292E"> channels</span></span>
+<span class="line"><span style="color:#24292E">  ) </span><span style="color:#D73A49">as</span><span style="color:#24292E"> ranked_channels</span></span>
+<span class="line"><span style="color:#D73A49">  where</span><span style="color:#24292E"> row_num </span><span style="color:#D73A49">=</span><span style="color:#005CC5"> 1</span><span style="color:#24292E">)</span></span>
+<span class="line"></span>
+<span class="line"><span style="color:#D73A49">select</span><span style="color:#24292E"> x, </span><span style="color:#005CC5">count</span><span style="color:#24292E">(</span><span style="color:#D73A49">distinct</span><span style="color:#24292E"> session_id) y</span></span></code></pre> <p data-astro-cid-yukvp7kl>Only the landing page view normally carries a referrer, so the visit inherits its channel; later page views (internal referrer → NULL) classify as <code data-astro-cid-yukvp7kl>''</code> and sort last. ClickHouse does the same with <code data-astro-cid-yukvp7kl>argMin(x, tuple(if(x != '', 0, 1), created_at, event_id))</code>. The revenue report instead takes the session's <em data-astro-cid-yukvp7kl>earliest</em> event (<code data-astro-cid-yukvp7kl>min(created_at)</code>) and classifies that one row. Since <code data-astro-cid-yukvp7kl>visit_id</code> is derived per hour (<a href="session-identity.html#visit" data-astro-cid-yukvp7kl>session identity</a>), a long browsing session can contain several visits, each attributed separately.</p> <footer class="docfoot"> <span data-astro-cid-yukvp7kl>Channel attribution — deep-dive</span> <span data-astro-cid-yukvp7kl>Source: <span class="path" data-astro-cid-yukvp7kl>src/queries/sql/getChannelMetrics.ts</span>, <span class="path" data-astro-cid-yukvp7kl>src/queries/sql/getChannelExpandedMetrics.ts</span>, <span class="path" data-astro-cid-yukvp7kl>src/queries/sql/revenue/getRevenueMetrics.ts</span>, <span class="path" data-astro-cid-yukvp7kl>src/lib/constants.ts</span>, <span class="path" data-astro-cid-yukvp7kl>tests/api/revenue.spec.ts</span></span> </footer> <script>// Browser-safe port of the channel CASE (three copies × two backends in target-src).
+// variant: 'chanPg' = getChannelMetrics / getChannelExpandedMetrics, Postgres
+//          'chanCh' = the same reports, ClickHouse (non-Nullable String columns)
+//          'revPg'  = getRevenueMetrics, Postgres
+//          'revCh'  = getRevenueMetrics, ClickHouse
+var LISTS = {
+  SOCIAL: ['bsky.app','facebook.com','fb.com','ig.com','instagram.com','linkedin.','news.ycombinator.com','pinterest.','reddit.','snapchat.','t.co','threads.net','tiktok.','twitter.com','x.com'],
+  SEARCH: ['baidu.com','bing.com','duckduckgo.com','ecosia.org','google.','msn.com','search.brave.com','yandex.'],
+  LLM: ['chatgpt.com','claude.ai','copilot.microsoft.com','gemini.google.com','meta.ai','perplexity.ai'],
+  SHOPPING: ['alibaba.com','aliexpress.com','amazon.','bestbuy.com','ebay.com','etsy.com','newegg.com','target.com','walmart.com'],
+  EMAIL: ['gmail.','hotmail.','mail.yahoo.','outlook.','proton.me','protonmail.'],
+  VIDEO: ['twitch.','youtube.'],
+  PAID: ['ad_id=','aid=','dclid=','epik=','gclid=','li_fat_id=','msclkid=','ob_click_id=','pc_id=','rdt_cid=','scid=','ttclid=','twclid=','utm_medium=cpc','utm_medium=paid','utm_medium=paid_social','utm_source=google']
+};
+function classifyChannel(row, variant) {
+  // SQL three-valued logic: true / false / null (UNKNOWN). A CASE branch fires only on true.
+  function or() { var a = [].slice.call(arguments); return a.indexOf(true) >= 0 ? true : a.indexOf(null) >= 0 ? null : false; }
+  function and() { var a = [].slice.call(arguments); return a.indexOf(false) >= 0 ? false : a.indexOf(null) >= 0 ? null : true; }
+  function eq(a, b) { return a == null || b == null ? null : a === b; }
+  function ne(a, b) { return a == null || b == null ? null : a !== b; }
+  function ilike(col, s) { return col == null ? null : col.toLowerCase().indexOf(s.toLowerCase()) >= 0; }
+  function anyIlike(col, arr) { return or.apply(null, arr.map(function (s) { return ilike(col, s); })); }
+  function likeCs(col, s) { return col == null ? null : col.indexOf(s) >= 0; }
+  function startsCs(col, s) { return col == null ? null : col.indexOf(s) === 0; }
+
+  var r = { referrer_domain: row.referrer_domain, url_query: row.url_query, utm_medium: row.utm_medium, utm_source: row.utm_source, hostname: row.hostname };
+  var prefixRule, prefixTrue, hostCmp;
+  var isCh = variant === 'chanCh' || variant === 'revCh';
+  var isRev = variant === 'revPg' || variant === 'revCh';
+  if (isCh) {
+    Object.keys(r).forEach(function (k) { if (r[k] == null) r[k] = ''; });
+    prefixRule = "multiSearchAny(lower(utm_medium), ['cp','ppc','retargeting','paid'])";
+    prefixTrue = or(ilike(r.utm_medium, 'cp'), ilike(r.utm_medium, 'ppc'), ilike(r.utm_medium, 'retargeting'), ilike(r.utm_medium, 'paid'));
+    hostCmp = r.hostname;
+  } else if (variant === 'revPg') {
+    if (r.referrer_domain == null) r.referrer_domain = '';
+    if (r.url_query == null) r.url_query = '';
+    prefixRule = "utm_medium ilike '%cp%' OR '%ppc%' OR '%retargeting%' OR '%paid%'";
+    prefixTrue = or(ilike(r.utm_medium, 'cp'), ilike(r.utm_medium, 'ppc'), ilike(r.utm_medium, 'retargeting'), ilike(r.utm_medium, 'paid'));
+    hostCmp = r.hostname == null ? null : r.hostname.replace(/^www./, '');
+  } else {
+    prefixRule = "utm_medium LIKE 'p%' OR LIKE '%ppc%' OR '%retargeting%' OR '%paid%' (case-sensitive)";
+    prefixTrue = or(startsCs(r.utm_medium, 'p'), likeCs(r.utm_medium, 'ppc'), likeCs(r.utm_medium, 'retargeting'), likeCs(r.utm_medium, 'paid'));
+    hostCmp = r.hostname == null ? null : r.hostname.replace(/^www./, '');
+  }
+  var prefix = prefixTrue === true ? 'paid' : 'organic';
+  var L = LISTS;
+  var branches = [
+    ['direct', and(eq(r.referrer_domain, ''), eq(r.url_query, '')), "referrer_domain = '' and url_query = ''"],
+    ['paidAds', anyIlike(r.url_query, L.PAID), 'url_query contains a PAID_AD_PARAMS entry'],
+    ['referral', anyIlike(r.utm_medium, ['referral', 'app', 'link']), "utm_medium contains referral | app | link"],
+    ['affiliate', ilike(r.utm_medium, 'affiliate'), 'utm_medium contains affiliate'],
+    ['sms', or(ilike(r.utm_medium, 'sms'), ilike(r.utm_source, 'sms')), 'utm_medium or utm_source contains sms'],
+    ['llm', anyIlike(r.referrer_domain, L.LLM), 'referrer_domain contains an LLM_DOMAINS entry'],
+    [prefix + 'Search', or(anyIlike(r.referrer_domain, L.SEARCH), ilike(r.utm_medium, 'organic')), 'SEARCH_DOMAINS or utm_medium contains organic'],
+    [prefix + 'Social', anyIlike(r.referrer_domain, L.SOCIAL), 'referrer_domain contains a SOCIAL_DOMAINS entry'],
+    ['email', or(anyIlike(r.referrer_domain, L.EMAIL), ilike(r.utm_medium, 'mail')), 'EMAIL_DOMAINS or utm_medium contains mail'],
+    [prefix + 'Shopping', or(anyIlike(r.referrer_domain, L.SHOPPING), ilike(r.utm_medium, 'shop')), 'SHOPPING_DOMAINS or utm_medium contains shop'],
+    [prefix + 'Video', or(anyIlike(r.referrer_domain, L.VIDEO), ilike(r.utm_medium, 'video')), 'VIDEO_DOMAINS or utm_medium contains video'],
+    ['referral', and(ne(r.referrer_domain, hostCmp), ne(r.referrer_domain, '')), 'referrer_domain is another non-empty host'],
+  ];
+  var unknown = [];
+  var evals = branches.map(function (b) { return b[1]; });
+  for (var i = 0; i < branches.length; i++) {
+    if (branches[i][1] === true) {
+      return { channel: branches[i][0], branch: i + 1, why: branches[i][2], prefix: prefix, prefixRule: prefixRule, unknown: unknown, evals: evals, fallback: false };
+    }
+    if (branches[i][1] === null) unknown.push(i + 1);
+  }
+  if (isRev) return { channel: 'Unknown', branch: 0, why: "no WHEN was true → ELSE 'Unknown'", prefix: prefix, prefixRule: prefixRule, unknown: unknown, evals: evals, fallback: true };
+  return { channel: 'direct', branch: 0, why: "no WHEN was true → x = '' → coalesce(nullif(x, ''), 'direct')", prefix: prefix, prefixRule: prefixRule, unknown: unknown, evals: evals, fallback: true };
+}
+
+// UI for the channel resolver on channel-attribution.astro. Concatenated after channel-logic.js
+// into the page's single inline script. All DOM lookups are null-guarded.
+(function () {
+  var root = document.getElementById('ch-widget');
+  var out = document.getElementById('ch-out');
+  if (!root || !out || typeof classifyChannel !== 'function') return;
+
+  var UTM = 'utm_source=newsletter&utm_medium=email&utm_campaign=launch&gclid=abc123';
+  var PRESETS = {
+    alice: { label: 'alice — API test persona (google.com + UTM + gclid)', verified: 'tests/api/revenue.spec.ts asserts alice → paidAds on Postgres and ClickHouse (revenue report)',
+      row: { referrer_domain: 'google.com', url_query: UTM, utm_source: 'newsletter', utm_medium: 'email', hostname: 'example.test' } },
+    bob: { label: 'bob — API test persona (t.co)', verified: 'tests/api/revenue.spec.ts asserts bob → organicSocial on both backends (revenue report)',
+      row: { referrer_domain: 't.co', url_query: '', utm_source: null, utm_medium: null, hostname: 'example.test' } },
+    carol: { label: 'carol — API test persona (no referrer, no query)', verified: 'tests/api/revenue.spec.ts asserts carol → direct on both backends (revenue report)',
+      row: { referrer_domain: null, url_query: '', utm_source: null, utm_medium: null, hostname: 'example.test' } },
+    seedCpc: { label: 'seed: google / cpc / brand_search (scripts/seed)', verified: null,
+      row: { referrer_domain: 'google.com', url_query: null, utm_source: 'google', utm_medium: 'cpc', hostname: 'blog.example.com' } },
+    seedEmail: { label: 'seed: newsletter / email, no referrer (scripts/seed)', verified: null,
+      row: { referrer_domain: null, url_query: null, utm_source: 'newsletter', utm_medium: 'email', hostname: 'blog.example.com' } },
+    seedPh: { label: 'seed: referral from producthunt.com (scripts/seed)', verified: null,
+      row: { referrer_domain: 'producthunt.com', url_query: null, utm_source: null, utm_medium: null, hostname: 'blog.example.com' } },
+    refQuery: { label: 'tracked: landing on /?ref=launch with no referrer', verified: null,
+      row: { referrer_domain: null, url_query: 'ref=launch', utm_source: null, utm_medium: null, hostname: 'example.test' } },
+    partner: { label: 'tracked: google.com with utm_medium=partner', verified: null,
+      row: { referrer_domain: 'google.com', url_query: 'utm_source=acme&utm_medium=partner', utm_source: 'acme', utm_medium: 'partner', hostname: 'example.test' } }
+  };
+  var FIELDS = ['referrer_domain', 'url_query', 'utm_source', 'utm_medium', 'hostname'];
+  var VARIANTS = [
+    ['chanPg', 'Channels report · Postgres', 'getChannelMetrics / getChannelExpandedMetrics'],
+    ['chanCh', 'Channels report · ClickHouse', 'same files, clickhouseQuery'],
+    ['revPg', 'Revenue report · Postgres', 'revenue/getRevenueMetrics.ts'],
+    ['revCh', 'Revenue report · ClickHouse', 'revenue/getRevenueMetrics.ts']
+  ];
+
+  // Exact values live in state; inputs are read only when the user edits them.
+  var state = { preset: 'alice', edited: false, row: Object.assign({}, PRESETS.alice.row) };
+
+  function syncControls() {
+    FIELDS.forEach(function (f) {
+      var t = document.getElementById('ch-' + f);
+      var n = document.getElementById('ch-' + f + '-null');
+      var v = state.row[f];
+      if (t) { t.value = v == null ? '' : v; t.disabled = v == null; }
+      if (n) n.checked = v == null;
+    });
+    var sel = document.getElementById('ch-preset');
+    if (sel) sel.value = state.preset;
+  }
+
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function render() {
+    var results = VARIANTS.map(function (v) { return [v, classifyChannel(state.row, v[0])]; });
+    out.textContent = '';
+    var grid = el('div', 'chgrid');
+    results.forEach(function (pair) {
+      var v = pair[0], r = pair[1];
+      var card = el('div', 'chcard');
+      card.setAttribute('data-variant', v[0]);
+      card.setAttribute('data-channel', r.channel);
+      card.appendChild(el('div', 'chname', v[1]));
+      card.appendChild(el('div', 'chfile', v[2]));
+      card.appendChild(el('div', 'chval', r.channel));
+      card.appendChild(el('div', 'chwhy', (r.branch ? 'WHEN #' + r.branch + ': ' : '') + r.why));
+      card.appendChild(el('div', 'chpre', 'prefix = ' + r.prefix));
+      var trace = el('div', 'chtrace');
+      r.evals.forEach(function (e, i) {
+        if (r.branch && i + 1 > r.branch) {
+          // CASE stops at the first true WHEN; later branches are never evaluated.
+          var skip = el('span', 'tb tb-x', (i + 1) + '–');
+          skip.title = 'not reached';
+          trace.appendChild(skip);
+          return;
+        }
+        var s = el('span', 'tb ' + (e === true ? 'tb-t' : e === null ? 'tb-n' : 'tb-f'), (i + 1) + (e === true ? '✓' : e === null ? '?' : '✗'));
+        s.title = e === true ? 'true' : e === null ? 'NULL (unknown) — branch skipped' : 'false';
+        trace.appendChild(s);
+      });
+      card.appendChild(trace);
+      grid.appendChild(card);
+    });
+    out.appendChild(grid);
+
+    var names = results.map(function (p) { return p[1].channel; });
+    var allSame = names.every(function (n) { return n === names[0]; });
+    var verdict = el('div', 'verdict ' + (allSame ? 'ok' : 'stop'));
+    verdict.id = 'ch-verdict';
+    if (allSame) {
+      verdict.textContent = 'All four copies agree: ' + names[0] + '.';
+    } else {
+      var parts = results.map(function (p) { return p[0][1] + ' → ' + p[1].channel; });
+      verdict.textContent = 'The copies disagree. ' + parts.join(' · ') + '.';
+    }
+    out.appendChild(verdict);
+
+    var p = PRESETS[state.preset];
+    var note = el('div', 'chnote');
+    if (p && p.verified && !state.edited) note.textContent = '✔ Verified value: ' + p.verified + '.';
+    else if (state.edited) note.textContent = 'Edited row — outputs come from the ported CASE logic, not from a test assertion.';
+    else note.textContent = 'Not asserted by a test: outputs come from the ported CASE logic.';
+    out.appendChild(note);
+
+    root.setAttribute('data-result', names.join('|'));
+  }
+
+  var sel = document.getElementById('ch-preset');
+  if (sel) {
+    sel.textContent = '';
+    Object.keys(PRESETS).forEach(function (k) {
+      var o = document.createElement('option'); o.value = k; o.textContent = PRESETS[k].label; sel.appendChild(o);
+    });
+    sel.addEventListener('change', function () {
+      if (!PRESETS[sel.value]) return;
+      state.preset = sel.value;
+      state.edited = false;
+      state.row = Object.assign({}, PRESETS[sel.value].row);
+      syncControls();
+      render();
+    });
+  }
+  FIELDS.forEach(function (f) {
+    var t = document.getElementById('ch-' + f);
+    var n = document.getElementById('ch-' + f + '-null');
+    if (t) t.addEventListener('input', function () { state.row[f] = t.value; state.edited = true; render(); });
+    if (n) n.addEventListener('change', function () {
+      state.row[f] = n.checked ? null : (t ? t.value : '');
+      if (t) t.disabled = n.checked;
+      state.edited = true;
+      render();
+    });
+  });
+  syncControls();
+  render();
+})();
+</script>  </main> </body></html>
