@@ -9,9 +9,9 @@
 
 **Live site: <https://emmadusmani.github.io/umami-engineering-guide/>**
 
-| Hub | Data model | Channel attribution |
+| [Hub](https://emmadusmani.github.io/umami-engineering-guide/) | [Data model](https://emmadusmani.github.io/umami-engineering-guide/data-model.html) | [Channel attribution](https://emmadusmani.github.io/umami-engineering-guide/channel-attribution.html) |
 |---|---|---|
-| [![Hub page](assets/screenshots/hub.png)](https://emmadusmani.github.io/umami-engineering-guide/) | [![Data model page](assets/screenshots/data-model.png)](https://emmadusmani.github.io/umami-engineering-guide/data-model.html) | [![Channel attribution page](assets/screenshots/channel-attribution.png)](https://emmadusmani.github.io/umami-engineering-guide/channel-attribution.html) |
+| ![Hub page](assets/screenshots/hub.png) | ![Data model page](assets/screenshots/data-model.png) | ![Channel attribution page](assets/screenshots/channel-attribution.png) |
 
 ---
 
